@@ -1,3 +1,5 @@
+import 'dart:math';
+
 const activities = <String>[
   'GARDIENNAGE',
   'NETTOYAGE',
@@ -26,18 +28,10 @@ const months = <String>[
   'Dec',
 ];
 
-enum SyncState {
-  synced,
-  dirty,
-  syncing,
-  failed,
-}
+enum SyncState { synced, dirty, syncing, failed }
 
 class AnnualBillingData {
-  const AnnualBillingData({
-    required this.monthlyRate,
-    required this.payments,
-  });
+  const AnnualBillingData({required this.monthlyRate, required this.payments});
 
   factory AnnualBillingData.fromJson(Map<String, dynamic> json) {
     final rawPayments = json['payments'] as Map<String, dynamic>? ?? const {};
@@ -61,28 +55,33 @@ class AnnualBillingData {
 
   double expectedMonthlyAmount(int billedStaff) => billedStaff * monthlyRate;
 
-  double expectedYearAmount(int billedStaff) => expectedMonthlyAmount(billedStaff) * 12;
+  double expectedYearAmount(int billedStaff) =>
+      expectedMonthlyAmount(billedStaff) * 12;
 
   double expectedDueAmount(int billedStaff, int dueMonthCount) {
     return expectedMonthlyAmount(billedStaff) * dueMonthCount.clamp(0, 12);
   }
 
   double get paidTotal {
-    return months.fold<double>(0, (total, month) => total + (payments[month] ?? 0));
+    return months.fold<double>(
+      0,
+      (total, month) => total + (payments[month] ?? 0),
+    );
   }
 
   double paidTotalDue(int dueMonthCount) {
     final safeCount = dueMonthCount.clamp(0, 12);
-    return months.take(safeCount).fold<double>(
-          0,
-          (total, month) => total + (payments[month] ?? 0),
-        );
+    return months
+        .take(safeCount)
+        .fold<double>(0, (total, month) => total + (payments[month] ?? 0));
   }
 
-  double balance(int billedStaff) => expectedYearAmount(billedStaff) - paidTotal;
+  double balance(int billedStaff) =>
+      expectedYearAmount(billedStaff) - paidTotal;
 
   double balanceDue(int billedStaff, int dueMonthCount) {
-    return expectedDueAmount(billedStaff, dueMonthCount) - paidTotalDue(dueMonthCount);
+    return expectedDueAmount(billedStaff, dueMonthCount) -
+        paidTotalDue(dueMonthCount);
   }
 
   AnnualBillingData copyWith({
@@ -96,15 +95,13 @@ class AnnualBillingData {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'monthlyRate': monthlyRate,
-      'payments': payments,
-    };
+    return {'monthlyRate': monthlyRate, 'payments': payments};
   }
 }
 
 class BillingLine {
   BillingLine({
+    String? id,
     required this.reference,
     required this.name,
     required this.activity,
@@ -117,11 +114,13 @@ class BillingLine {
     required this.status,
     required this.statusComment,
     required this.syncState,
-  });
+  }) : id = id == null || id.trim().isEmpty ? newBillingLineId() : id;
 
   factory BillingLine.fromJson(Map<String, dynamic> json) {
-    final rawAnnualBillings = json['annualBillings'] as Map<String, dynamic>? ?? const {};
+    final rawAnnualBillings =
+        json['annualBillings'] as Map<String, dynamic>? ?? const {};
     return BillingLine(
+      id: json['id'] as String?,
       reference: json['reference'] as String? ?? '',
       name: json['name'] as String? ?? '',
       activity: json['activity'] as String? ?? 'GARDIENNAGE',
@@ -142,6 +141,7 @@ class BillingLine {
     );
   }
 
+  final String id;
   final String reference;
   final String name;
   final String activity;
@@ -179,10 +179,9 @@ class BillingLine {
   }
 
   double expectedDueAmount(int year, {DateTime? asOf}) {
-    return annualBilling(year).expectedDueAmount(
-      billedStaff,
-      billingMonthsDue(year, asOf: asOf),
-    );
+    return annualBilling(
+      year,
+    ).expectedDueAmount(billedStaff, billingMonthsDue(year, asOf: asOf));
   }
 
   double paidTotalDue(int year, {DateTime? asOf}) {
@@ -190,26 +189,23 @@ class BillingLine {
   }
 
   double balanceDue(int year, {DateTime? asOf}) {
-    return annualBilling(year).balanceDue(
-      billedStaff,
-      billingMonthsDue(year, asOf: asOf),
-    );
+    return annualBilling(
+      year,
+    ).balanceDue(billedStaff, billingMonthsDue(year, asOf: asOf));
   }
 
   bool get isIncomplete {
-    return reference.trim().isEmpty || name.trim().isEmpty || activity.trim().isEmpty;
+    return reference.trim().isEmpty ||
+        name.trim().isEmpty ||
+        activity.trim().isEmpty;
   }
 
   BillingLine withAnnualBilling(int year, AnnualBillingData annualBilling) {
-    return copyWith(
-      annualBillings: {
-        ...annualBillings,
-        year: annualBilling,
-      },
-    );
+    return copyWith(annualBillings: {...annualBillings, year: annualBilling});
   }
 
   BillingLine copyWith({
+    String? id,
     String? reference,
     String? name,
     String? activity,
@@ -224,6 +220,7 @@ class BillingLine {
     SyncState? syncState,
   }) {
     return BillingLine(
+      id: id ?? this.id,
       reference: reference ?? this.reference,
       name: name ?? this.name,
       activity: activity ?? this.activity,
@@ -241,6 +238,7 @@ class BillingLine {
 
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'reference': reference,
       'name': name,
       'activity': activity,
@@ -250,12 +248,47 @@ class BillingLine {
       'billedStaff': billedStaff,
       'paidStaff': paidStaff,
       'annualBillings': {
-        for (final entry in annualBillings.entries) '${entry.key}': entry.value.toJson(),
+        for (final entry in annualBillings.entries)
+          '${entry.key}': entry.value.toJson(),
       },
       'status': status,
       'statusComment': statusComment,
       'syncState': syncState.name,
     };
+  }
+}
+
+String newBillingLineId() {
+  final random = _secureRandom();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  String hex(int value) => value.toRadixString(16).padLeft(2, '0');
+  final chars = bytes.map(hex).join();
+
+  return [
+    chars.substring(0, 8),
+    chars.substring(8, 12),
+    chars.substring(12, 16),
+    chars.substring(16, 20),
+    chars.substring(20),
+  ].join('-');
+}
+
+bool isGeneratedBillingLineId(String value) {
+  return RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    caseSensitive: false,
+  ).hasMatch(value.trim());
+}
+
+Random _secureRandom() {
+  try {
+    return Random.secure();
+  } on UnsupportedError {
+    return Random();
   }
 }
 

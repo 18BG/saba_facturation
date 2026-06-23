@@ -28,7 +28,10 @@ class BillingExcelImportResult {
   int get importedCount => lines.length;
 
   int get warningCount {
-    return missingReferences + missingSites + duplicateReferences.length + unknownActivities.length;
+    return missingReferences +
+        missingSites +
+        duplicateReferences.length +
+        unknownActivities.length;
   }
 
   bool get hasWarnings => warningCount > 0;
@@ -45,7 +48,9 @@ class BillingExcelImporter {
     final workbook = Excel.decodeBytes(bytes);
     final sheet = workbook.tables.values.firstWhere(
       (candidate) => candidate.rows.isNotEmpty,
-      orElse: () => throw const FormatException('Aucune feuille lisible dans ce fichier.'),
+      orElse: () => throw const FormatException(
+        'Aucune feuille lisible dans ce fichier.',
+      ),
     );
 
     final rows = [
@@ -63,7 +68,9 @@ class BillingExcelImporter {
     final headerIndex = _findHeaderIndex(rows);
     final dataRows = rows.skip(headerIndex + 1).toList();
     final monthIndexes = _detectMonthIndexes(
-      headerIndex >= 0 && headerIndex < rows.length ? rows[headerIndex] : const [],
+      headerIndex >= 0 && headerIndex < rows.length
+          ? rows[headerIndex]
+          : const [],
       year,
     );
 
@@ -94,7 +101,8 @@ class BillingExcelImporter {
 
       final referenceKey = reference.toUpperCase();
       if (referenceKey.isNotEmpty) {
-        referenceCounts[referenceKey] = (referenceCounts[referenceKey] ?? 0) + 1;
+        referenceCounts[referenceKey] =
+            (referenceCounts[referenceKey] ?? 0) + 1;
       }
 
       final payments = <String, double>{
@@ -113,10 +121,7 @@ class BillingExcelImporter {
           billedStaff: _cellInt(_cellAt(row, 6)),
           paidStaff: _cellInt(_cellAt(row, 7)),
           annualBillings: {
-            year: AnnualBillingData(
-              monthlyRate: 0,
-              payments: payments,
-            ),
+            year: AnnualBillingData(monthlyRate: 0, payments: payments),
           },
           status: _normalizeStatus(_cellAt(row, 8)),
           statusComment: '',
@@ -142,10 +147,14 @@ class BillingExcelImporter {
 
   int _findHeaderIndex(List<List<Object?>> rows) {
     for (var i = 0; i < rows.length; i++) {
-      final normalized = rows[i].map((cell) => _normalizeText(_cellText(cell))).toList();
+      final normalized = rows[i]
+          .map((cell) => _normalizeText(_cellText(cell)))
+          .toList();
       final hasSite = normalized.any((value) => value == 'SITE');
       final hasActivity = normalized.any((value) => value == 'ACTIVITE');
-      final hasReference = normalized.any((value) => value.contains('REFERENCE'));
+      final hasReference = normalized.any(
+        (value) => value.contains('REFERENCE'),
+      );
       if (hasSite && (hasActivity || hasReference)) return i;
     }
     return rows.length > 2 ? 1 : 0;
@@ -159,9 +168,7 @@ class BillingExcelImporter {
       if (monthIndex != null) detected[monthIndex] = column;
     }
 
-    return [
-      for (var i = 0; i < months.length; i++) detected[i] ?? 9 + i,
-    ];
+    return [for (var i = 0; i < months.length; i++) detected[i] ?? 9 + i];
   }
 
   int? _monthIndexFromHeader(Object? value, int year) {
@@ -174,7 +181,9 @@ class BillingExcelImporter {
 
     final text = _cellText(value).trim();
     final parsedDate = DateTime.tryParse(text);
-    if (parsedDate != null && parsedDate.year == year) return parsedDate.month - 1;
+    if (parsedDate != null && parsedDate.year == year) {
+      return parsedDate.month - 1;
+    }
 
     final normalized = _normalizeText(text);
     const monthWords = [
@@ -280,11 +289,9 @@ class BillingExcelImporter {
     value = _unwrapCellValue(value);
     if (value == null) return 0;
     if (value is num) return value.toDouble();
-    final text = _cellText(value)
-        .replaceAll('\u00A0', ' ')
-        .replaceAll(' ', '')
-        .replaceAll(',', '.')
-        .trim();
+    final text = _cellText(
+      value,
+    ).replaceAll('\u00A0', ' ').replaceAll(' ', '').replaceAll(',', '.').trim();
     return double.tryParse(text) ?? 0;
   }
 
@@ -297,60 +304,45 @@ class BillingExcelImporter {
   }
 
   Object? _unwrapCellValue(Object? value) {
-    if (value == null || value is String || value is num || value is bool || value is DateTime) {
+    if (value == null ||
+        value is String ||
+        value is num ||
+        value is bool ||
+        value is DateTime) {
       return value;
     }
 
-    final dynamic dynamicValue = value;
-
-    try {
-      final Object? innerValue = dynamicValue.value as Object?;
-      if (!identical(innerValue, value)) return _unwrapCellValue(innerValue);
-    } on Object {
-      // Fall through to typed date/time extraction below.
-    }
-
-    try {
-      final int year = dynamicValue.year as int;
-      final int month = dynamicValue.month as int;
-      final int day = dynamicValue.day as int;
-      final int hour = _optionalInt(() => dynamicValue.hour as int);
-      final int minute = _optionalInt(() => dynamicValue.minute as int);
-      final int second = _optionalInt(() => dynamicValue.second as int);
-      return DateTime(year, month, day, hour, minute, second);
-    } on Object {
-      // Fall through to toString fallback.
-    }
-
-    return value;
-  }
-
-  int _optionalInt(int Function() read) {
-    try {
-      return read();
-    } on Object {
-      return 0;
-    }
+    return switch (value) {
+      final TextCellValue cell => cell.value.toString(),
+      final IntCellValue cell => cell.value,
+      final DoubleCellValue cell => cell.value,
+      final BoolCellValue cell => cell.value,
+      final DateCellValue cell => cell.asDateTimeLocal(),
+      final DateTimeCellValue cell => cell.asDateTimeLocal(),
+      final TimeCellValue cell => cell.toString(),
+      final FormulaCellValue cell => cell.formula,
+      _ => value,
+    };
   }
 
   String _normalizeText(String value) {
     return value
         .trim()
         .toUpperCase()
-        .replaceAll('É', 'E')
-        .replaceAll('È', 'E')
-        .replaceAll('Ê', 'E')
-        .replaceAll('Ë', 'E')
-        .replaceAll('À', 'A')
-        .replaceAll('Â', 'A')
-        .replaceAll('Ä', 'A')
-        .replaceAll('Î', 'I')
-        .replaceAll('Ï', 'I')
-        .replaceAll('Ô', 'O')
-        .replaceAll('Ö', 'O')
-        .replaceAll('Ù', 'U')
-        .replaceAll('Û', 'U')
-        .replaceAll('Ü', 'U')
-        .replaceAll('Ç', 'C');
+        .replaceAll('\u00C9', 'E')
+        .replaceAll('\u00C8', 'E')
+        .replaceAll('\u00CA', 'E')
+        .replaceAll('\u00CB', 'E')
+        .replaceAll('\u00C0', 'A')
+        .replaceAll('\u00C2', 'A')
+        .replaceAll('\u00C4', 'A')
+        .replaceAll('\u00CE', 'I')
+        .replaceAll('\u00CF', 'I')
+        .replaceAll('\u00D4', 'O')
+        .replaceAll('\u00D6', 'O')
+        .replaceAll('\u00D9', 'U')
+        .replaceAll('\u00DB', 'U')
+        .replaceAll('\u00DC', 'U')
+        .replaceAll('\u00C7', 'C');
   }
 }

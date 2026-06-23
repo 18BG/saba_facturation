@@ -17,13 +17,27 @@ class DashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final expected = lines.fold<double>(0, (sum, line) => sum + line.expectedDueAmount(selectedYear));
-    final paid = lines.fold<double>(0, (sum, line) => sum + line.paidTotalDue(selectedYear));
-    final balance = lines.fold<double>(0, (sum, line) => sum + line.balanceDue(selectedYear));
+    final expected = lines.fold<double>(
+      0,
+      (sum, line) => sum + line.expectedDueAmount(selectedYear),
+    );
+    final paid = lines.fold<double>(
+      0,
+      (sum, line) => sum + line.paidTotalDue(selectedYear),
+    );
+    final balance = lines.fold<double>(
+      0,
+      (sum, line) => sum + line.balanceDue(selectedYear),
+    );
     final activeLines = lines.where((line) => line.status == 'Actif').length;
     final topBalances = [...lines]
-      ..sort((a, b) => b.balanceDue(selectedYear).compareTo(a.balanceDue(selectedYear)));
-    final monthsDue = lines.isEmpty ? 0 : lines.first.billingMonthsDue(selectedYear);
+      ..sort(
+        (a, b) =>
+            b.balanceDue(selectedYear).compareTo(a.balanceDue(selectedYear)),
+      );
+    final monthsDue = lines.isEmpty
+        ? 0
+        : lines.first.billingMonthsDue(selectedYear);
 
     return Padding(
       padding: const EdgeInsets.all(20),
@@ -32,7 +46,8 @@ class DashboardPage extends StatelessWidget {
         children: [
           _PageTitle(
             title: 'Dashboard',
-            subtitle: "Vue rapide de l'annee $selectedYear - suivi jusqu'au dernier mois clos ($monthsDue/12).",
+            subtitle:
+                "Vue rapide de l'annee $selectedYear - suivi jusqu'au dernier mois clos ($monthsDue/12).",
           ),
           const SizedBox(height: 18),
           Wrap(
@@ -81,22 +96,30 @@ class DashboardPage extends StatelessWidget {
                         children: [
                           const Text(
                             'Plus gros reliquats',
-                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                           const SizedBox(height: 10),
                           Expanded(
                             child: ListView.separated(
                               itemCount: topBalances.length,
-                              separatorBuilder: (_, index) => const Divider(height: 1),
+                              separatorBuilder: (_, index) =>
+                                  const Divider(height: 1),
                               itemBuilder: (context, index) {
                                 final line = topBalances[index];
                                 return ListTile(
                                   contentPadding: EdgeInsets.zero,
                                   title: Text(line.name),
-                                  subtitle: Text('${line.reference} - ${line.activity}'),
+                                  subtitle: Text(
+                                    '${line.reference} - ${line.activity}',
+                                  ),
                                   trailing: Text(
                                     _money(line.balanceDue(selectedYear)),
-                                    style: const TextStyle(fontWeight: FontWeight.w800),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   ),
                                 );
                               },
@@ -118,14 +141,19 @@ class DashboardPage extends StatelessWidget {
                         children: [
                           const Text(
                             'Repartition par activite',
-                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                           const SizedBox(height: 12),
                           for (final activity in activities)
                             if (lines.any((line) => line.activity == activity))
                               _ActivityRow(
                                 activity: activity,
-                                count: lines.where((line) => line.activity == activity).length,
+                                count: lines
+                                    .where((line) => line.activity == activity)
+                                    .length,
                               ),
                         ],
                       ),
@@ -153,7 +181,12 @@ class _ActivityRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         children: [
-          Expanded(child: Text(activity, style: const TextStyle(fontWeight: FontWeight.w700))),
+          Expanded(
+            child: Text(
+              activity,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
           StatusBadge(label: '$count ligne(s)', compact: true),
         ],
       ),
@@ -172,7 +205,10 @@ class _PageTitle extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+        ),
         const SizedBox(height: 4),
         Text(subtitle, style: const TextStyle(color: Color(0xFF64748B))),
       ],

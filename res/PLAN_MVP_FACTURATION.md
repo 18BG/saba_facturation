@@ -81,9 +81,12 @@ La reference comptable est obligatoire en production.
 Regles :
 
 - Elle est unique.
-- Elle est l'identifiant metier principal.
+- Elle est l'identifiant metier principal pour les utilisateurs.
+- Elle n'est pas l'identifiant technique du backend, car elle reste editable.
 - Elle doit etre renseignee avant validation definitive d'une ligne.
 - Le logiciel doit empecher deux lignes d'avoir la meme reference.
+- Chaque ligne possede aussi un identifiant technique stable genere par l'application.
+- Firestore utilise cet identifiant technique stable comme ID de document.
 
 ### 4.2 Nom / Site
 
@@ -225,6 +228,7 @@ Une ligne de facturation correspond a une ligne Excel. Ce n'est pas forcement un
 
 Champs :
 
+- idTechnique
 - reference
 - nom
 - activite
@@ -273,7 +277,8 @@ Paiements mensuels :
 Structure recommandee :
 
 ```text
-facturationLines/{reference}
+facturationLines/{lineId}
+  lineId
   reference
   nom
   activite
@@ -288,8 +293,10 @@ facturationLines/{reference}
   createdAt
   updatedAt
 
-facturationLines/{reference}/annees/{annee}
+facturationLines/{lineId}/annees/{annee}
   annee
+  lineId
+  reference
   tarifMensuel
   paiements
     janvier
@@ -313,7 +320,8 @@ facturationLines/{reference}/annees/{annee}
 
 Raisons :
 
-- La reference peut servir d'identifiant documentaire.
+- Un identifiant technique stable sert d'identifiant documentaire.
+- La reference reste un champ metier unique, editable et visible par les utilisateurs.
 - Les donnees generales de la ligne restent stables.
 - Les donnees financieres sont separees par annee.
 - Les anciennes annees restent consultables.
@@ -1164,7 +1172,7 @@ Hors MVP :
 
 ## 12. Etat d'avancement du prototype Flutter
 
-Date de mise a jour : 19 juin 2026.
+Date de mise a jour : 22 juin 2026.
 
 Cette section suit ce qui a deja ete construit dans le projet Flutter `facturation_app`, ce qui est en cours, et ce qui reste a faire pour arriver a un MVP utilisable en conditions reelles.
 
@@ -1280,8 +1288,74 @@ Montant attendu mensuel x 12
 
 #### Sauvegarde locale et sync MVP
 
-- Sauvegarde locale via `shared_preferences`.
+- Choix local DB acte : Drift + SQLite.
+- Raison du choix :
+  - donnees relationnelles,
+  - transactions,
+  - migrations,
+  - requetes locales propres,
+  - meilleure base pour une outbox de synchronisation Firebase.
+- `shared_preferences` est remplace comme stockage principal.
+- Les anciennes donnees `shared_preferences` peuvent etre migrees au premier chargement.
 - Les lignes restent disponibles apres fermeture/reouverture de l'application.
+- Schema SQLite ajoute :
+  - lignes de facturation,
+  - donnees annuelles,
+  - paiements mensuels,
+  - outbox de synchronisation.
+- Les sauvegardes locales sont regroupees avec debounce pour ne pas declencher une transaction complete a chaque frappe.
+- Les changements fins sont ajoutes dans l'outbox en arriere-plan, sans bloquer l'interface.
+- L'outbox remplace le dernier changement d'une meme cellule/champ au lieu d'accumuler toutes les frappes.
+- Le compteur de changements en attente est lu depuis l'outbox SQLite et remonte dans l'interface Facturation.
+- L'outbox peut maintenant etre relue depuis SQLite sous forme de changements metier (`PendingChange`).
+- Les changements d'outbox ont un cycle de vie pret pour Firebase :
+  - `pending`
+  - `syncing`
+  - `synced`
+  - `failed`
+  - `conflict`
+- Un changement confirme comme synchronise est retire de l'outbox locale.
+- Un changement en cours de synchronisation reste compte tant que Firebase n'a pas confirme.
+- Un changement en erreur reste conserve et recompte comme travail en attente.
+- Un moteur de synchronisation persistant est amorce pour traiter des lots depuis SQLite sans bloquer la grille.
+- La page Facturation ne marque plus les lignes comme synchronisees via un timer local.
+- Le pilotage de sync est remonte dans `AppShell`, qui declenche le flush d'outbox en arriere-plan.
+- Une protection evite qu'une confirmation distante ancienne supprime un nouveau changement saisi rapidement dans la meme cellule.
+- Un mapper Firestore est ajoute pour transformer chaque changement local en ecriture distante ciblee :
+  - champs de ligne vers `facturationLines/{lineId}`,
+  - tarif annuel vers `facturationLines/{lineId}/annees/{annee}`,
+  - paiement mensuel vers `facturationLines/{lineId}/annees/{annee}` avec champ `paiements.{mois}`.
+- Les identifiants techniques sont encodes pour ne pas casser les chemins Firestore.
+- Firebase est configure via FlutterFire pour le projet `appli-e7acd`.
+- Les plateformes configurees sont :
+  - web
+  - windows
+- Le fichier `lib/firebase_options.dart` est genere.
+- Les assets Drift/SQLite web sont ajoutes :
+  - `web/sqlite3.wasm`
+  - `web/drift_worker.js`
+- La configuration Drift web pointe vers `drift_worker.js`, ce qui corrige l'erreur MIME WebAssembly dans Chrome.
+- L'application initialise Firebase au demarrage.
+- Un vrai client Firestore est branche derriere le moteur de synchronisation persistant.
+- Les ecritures distantes utilisent `set(..., merge: true)` pour ne pousser que le champ modifie sans ecraser le reste du document.
+- Chaque ligne possede un UUID technique stable conserve dans SQLite et dans le JSON local.
+- Firestore utilise maintenant `facturationLines/{lineId}` au lieu de `facturationLines/{reference}`.
+- La reference comptable redevient un champ metier editable et synchronisable sans creer de nouveau document Firestore.
+- Les anciennes entrees d'outbox `reference` seules, creees avant cette correction, sont consommees sans push distant pour ne pas recreer les documents partiels.
+- Si Firestore refuse l'ecriture, par exemple a cause des regles de securite, l'outbox conserve le changement en erreur.
+- Si Firestore refuse l'ecriture, la ligne passe visuellement en erreur de synchronisation au lieu de rester bloquee en synchronisation.
+- L'interface affiche `Base distante non configuree` quand des modifications locales attendent une sync distante.
+- Une modale non repetitive previent l'utilisateur que les modifications restent locales tant que la base distante n'est pas configuree.
+- Tests unitaires ajoutes pour verifier :
+  - le remplacement des changements repetes d'une meme cellule,
+  - la relecture des changements en attente,
+  - la transition `syncing`,
+  - la suppression apres sync confirmee,
+  - la conservation des erreurs,
+  - la conservation d'un nouveau changement si une ancienne sync se termine apres lui,
+  - le mapping des changements vers les chemins Firestore prevus,
+  - le refus explicite d'envoyer vers Firebase tant que la configuration distante manque,
+  - l'arret du moteur de sync au premier echec reseau.
 - Indicateurs de sync visibles :
   - Synchronise
   - Modifie
@@ -1320,6 +1394,39 @@ Montant attendu mensuel x 12
   - remplacer les donnees locales apres confirmation.
 - Tests unitaires ajoutes pour le parseur Excel.
 
+#### Export Excel
+
+- Export Excel reel ajoute.
+- Dependances existantes reutilisees :
+  - `excel`
+  - `file_picker`
+- Service `BillingExcelExporter` cree.
+- Generation d'un fichier `.xlsx`.
+- Feuille nommee selon l'annee exportee, par exemple `Facturation 2026`.
+- Colonnes exportees dans un ordre proche du fichier metier :
+  - Reference
+  - SITE
+  - ACTIVITE
+  - Debut
+  - Fin
+  - Nature du Contrat CDD/CDI
+  - Eff facture
+  - Eff paye
+  - Position client
+  - Tarif mensuel
+  - Janvier a decembre
+  - Total paye
+  - Attendu a date
+  - Paye a date
+  - Reliquat a date
+  - Attendu annuel
+  - Reliquat annuel
+- Option d'export uniquement des lignes actives.
+- Option pour inclure ou non les colonnes de reliquat.
+- Sauvegarde du fichier via dialogue systeme Windows.
+- Support web prepare via le meme flux `file_picker`.
+- Test unitaire ajoute pour decoder le fichier exporte et verifier les totaux.
+
 ### 12.2 En cours ou a valider maintenant
 
 Ces elements sont codes ou amorces, mais doivent etre valides dans l'application apres installation des nouvelles dependances.
@@ -1340,6 +1447,22 @@ flutter run -d windows
 - Verifier que `Remplacer local` remplace bien les donnees locales apres confirmation.
 - Verifier que les lignes importees restent presentes apres fermeture/reouverture.
 - Verifier que les activites inconnues restent visibles dans la grille au lieu d'etre remplacees silencieusement.
+- Tester l'export depuis la page Export.
+- Verifier que le fichier `.xlsx` s'ouvre correctement dans Excel.
+- Verifier que les lignes actives seules sont exportees quand l'option est activee.
+- Verifier que les totaux et reliquats exportes correspondent aux valeurs de l'application.
+- Valider la nouvelle brique d'outbox persistante :
+  - taper vite dans une cellule,
+  - verifier que le compteur de modifications en attente augmente,
+  - fermer et rouvrir l'application,
+  - verifier que les donnees et le compteur restent coherents.
+- Relancer les controles apres la brique outbox :
+
+```powershell
+dart format lib test
+flutter analyze
+flutter test
+```
 
 ### 12.3 Reste a faire pour le MVP
 
@@ -1358,21 +1481,20 @@ flutter run -d windows
 
 #### Export Excel
 
-- Construire l'export Excel reel.
-- Produire un fichier proche du fichier actuel :
-  - meme ordre des colonnes,
-  - janvier a decembre,
-  - total,
-  - reliquat,
-  - filtres Excel,
-  - formats montants lisibles.
-- Ajouter options d'export :
-  - annee selectionnee,
+- Ajouter les filtres automatiques Excel si la bibliotheque retenue le permet ou via un traitement XLSX plus bas niveau.
+- Ajouter des formats numeriques plus propres dans Excel.
+- Ajouter styles d'en-tete et ligne totale.
+- Ajouter options d'export avancees :
   - vue filtree,
   - toutes les lignes,
-  - uniquement les reliquats.
+  - uniquement les reliquats,
+  - uniquement une activite,
+  - export par statut.
+- Ajouter un nom de fichier configurable si necessaire.
 
 #### Grille et saisie
+
+Ces elements restent importants, mais ils ne sont pas prioritaires tant que le coeur metier n'est pas stabilise.
 
 - Ameliorer la navigation clavier :
   - Enter,
@@ -1392,14 +1514,13 @@ flutter run -d windows
 
 #### Sauvegarde locale et sync
 
-- Remplacer progressivement `shared_preferences` par une vraie base locale desktop si necessaire :
-  - Drift,
-  - Isar,
-  - autre solution stable Flutter desktop.
-- Implementer une vraie outbox locale persistante.
+- Tester la migration depuis les anciennes donnees `shared_preferences`.
 - Integrer Firebase/Firestore.
+- Connecter le moteur de sync persistant au push Firestore reel.
 - Implementer la synchronisation reelle en arriere-plan.
 - Ajouter detection reseau reelle.
+- Ajouter reprise automatique quand la connexion revient.
+- Ajouter un indicateur detaille pour les changements en erreur.
 - Ajouter gestion des conflits cellule par cellule pour les paiements mensuels.
 - Ajouter historique minimal des modifications.
 
@@ -1447,8 +1568,10 @@ flutter run -d windows
 
 - Continuer les tests unitaires sur les calculs.
 - Ajouter tests widget sur Import.
+- Ajouter tests widget sur Export.
 - Ajouter tests de persistence locale.
 - Ajouter tests de parsing avec un fichier `.xlsx` genere.
+- Ajouter test d'export avec fichier `.xlsx` genere et relu.
 - Tester Windows en priorite.
 - Tester web ensuite.
 - Faire un test utilisateur simple avec une personne RH.
@@ -1457,14 +1580,15 @@ flutter run -d windows
 
 Ordre recommande :
 
-1. Stabiliser et valider l'import Excel reel.
-2. Construire l'export Excel reel.
-3. Ameliorer la navigation clavier et le copier/coller.
-4. Remplacer ou renforcer la grille si les performances deviennent insuffisantes.
-5. Passer de la sauvegarde locale simple a une vraie base locale.
-6. Integrer Firebase et la synchronisation reelle.
+1. Valider la brique outbox persistante avec `flutter analyze` et `flutter test`.
+2. Verifier que Firestore Database est cree dans la console Firebase.
+3. Configurer les regles Firestore de developpement ou brancher Firebase Auth.
+4. Tester une vraie ecriture depuis Windows.
+5. Ajouter detection reseau reelle et reprise automatique.
+6. Ajouter les validations metier essentielles sans bloquer le brouillon.
 7. Ajouter authentification et droits.
-8. Faire une passe UI/UX finale avec test utilisateur.
+8. Ameliorer la navigation clavier, le copier/coller et la grille avancee.
+9. Faire une passe UI/UX finale avec test utilisateur.
 
 ## 13. Evolutions futures
 

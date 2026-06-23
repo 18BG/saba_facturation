@@ -5,11 +5,7 @@ import '../theme/app_icons.dart';
 import 'app_icon.dart';
 
 class StatusBadge extends StatelessWidget {
-  const StatusBadge({
-    super.key,
-    required this.label,
-    this.compact = false,
-  });
+  const StatusBadge({super.key, required this.label, this.compact = false});
 
   final String label;
   final bool compact;
@@ -52,7 +48,11 @@ class SyncBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = switch (state) {
-      SyncState.synced => ('Enregistre', AppIcons.cloudDone, const Color(0xFF15803D)),
+      SyncState.synced => (
+        'Enregistre',
+        AppIcons.cloudDone,
+        const Color(0xFF15803D),
+      ),
       SyncState.dirty => ('En attente', AppIcons.edit, const Color(0xFFB45309)),
       SyncState.syncing => ('Sync...', AppIcons.sync, const Color(0xFF2563EB)),
       SyncState.failed => ('Erreur', AppIcons.warning, const Color(0xFFDC2626)),

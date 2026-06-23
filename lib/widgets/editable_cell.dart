@@ -69,7 +69,9 @@ class _EditableCellState extends State<EditableCell> {
 
   @override
   Widget build(BuildContext context) {
-    final invalid = widget.hasError || (widget.isRequired && _controller.text.trim().isEmpty);
+    final invalid =
+        widget.hasError ||
+        (widget.isRequired && _controller.text.trim().isEmpty);
 
     final field = SizedBox(
       width: widget.width,
@@ -81,23 +83,32 @@ class _EditableCellState extends State<EditableCell> {
         style: TextStyle(
           fontSize: 13,
           fontWeight: widget.readOnly ? FontWeight.w700 : FontWeight.w500,
-          color: widget.readOnly ? const Color(0xFF334155) : const Color(0xFF111827),
+          color: widget.readOnly
+              ? const Color(0xFF334155)
+              : const Color(0xFF111827),
         ),
         decoration: InputDecoration(
           isDense: true,
           filled: true,
           fillColor: widget.readOnly ? const Color(0xFFF8FAFC) : Colors.white,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 9,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(4),
             borderSide: BorderSide(
-              color: invalid ? const Color(0xFFDC2626) : const Color(0xFFE1E7EF),
+              color: invalid
+                  ? const Color(0xFFDC2626)
+                  : const Color(0xFFE1E7EF),
             ),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(4),
             borderSide: BorderSide(
-              color: invalid ? const Color(0xFFDC2626) : const Color(0xFFE1E7EF),
+              color: invalid
+                  ? const Color(0xFFDC2626)
+                  : const Color(0xFFE1E7EF),
             ),
           ),
         ),
@@ -112,9 +123,6 @@ class _EditableCellState extends State<EditableCell> {
 
     if (!invalid || widget.errorMessage == null) return field;
 
-    return Tooltip(
-      message: widget.errorMessage!,
-      child: field,
-    );
+    return Tooltip(message: widget.errorMessage!, child: field);
   }
 }

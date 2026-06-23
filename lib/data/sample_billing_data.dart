@@ -23,13 +23,15 @@ List<BillingLine> buildSampleBillingLines() {
     );
   }
 
-  AnnualBillingData sameEveryMonth(double monthlyRate, double amount, {int paidMonths = 12}) {
-    return annual(
-      monthlyRate,
-      {
-        for (var i = 0; i < months.length; i++) months[i]: i < paidMonths ? amount : 0,
-      },
-    );
+  AnnualBillingData sameEveryMonth(
+    double monthlyRate,
+    double amount, {
+    int paidMonths = 12,
+  }) {
+    return annual(monthlyRate, {
+      for (var i = 0; i < months.length; i++)
+        months[i]: i < paidMonths ? amount : 0,
+    });
   }
 
   return [
@@ -62,7 +64,8 @@ List<BillingLine> buildSampleBillingLines() {
       annualBillings: {
         2025: sameEveryMonth(42000, 84000, paidMonths: 12),
         2026: annual(45000, {
-          for (final month in months) month: month == 'Jan' || month == 'Fev' ? 90000 : 0,
+          for (final month in months)
+            month: month == 'Jan' || month == 'Fev' ? 90000 : 0,
         }),
       },
       status: 'Actif',

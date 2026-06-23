@@ -2,7 +2,7 @@ import 'pending_change.dart';
 
 class SyncQueue {
   SyncQueue([List<PendingChange>? initialChanges])
-      : _changes = List.of(initialChanges ?? const []);
+    : _changes = List.of(initialChanges ?? const []);
 
   final List<PendingChange> _changes;
 
@@ -17,12 +17,14 @@ class SyncQueue {
   }
 
   int get pendingCount {
-    return _changes.where((change) => change.state != ChangeState.synced).length;
+    return _changes
+        .where((change) => change.state != ChangeState.synced)
+        .length;
   }
 
   void enqueue(PendingChange change) {
     final existingIndex = _changes.indexWhere((candidate) {
-      return candidate.reference == change.reference &&
+      return candidate.lineId == change.lineId &&
           candidate.scope == change.scope &&
           candidate.field == change.field &&
           candidate.year == change.year &&
@@ -39,7 +41,8 @@ class SyncQueue {
 
   PendingChange? nextQueued() {
     for (final change in _changes) {
-      if (change.state == ChangeState.queued || change.state == ChangeState.failed) {
+      if (change.state == ChangeState.queued ||
+          change.state == ChangeState.failed) {
         return change;
       }
     }

@@ -20,7 +20,8 @@ class ImportPage extends StatefulWidget {
 
   final int selectedYear;
   final ValueChanged<int> onYearChanged;
-  final Future<void> Function(List<BillingLine> lines, ImportApplyMode mode) onApplyImport;
+  final Future<void> Function(List<BillingLine> lines, ImportApplyMode mode)
+  onApplyImport;
 
   @override
   State<ImportPage> createState() => _ImportPageState();
@@ -64,7 +65,9 @@ class _ImportPageState extends State<ImportPage> {
       setState(() => _result = result);
     } on Object catch (error) {
       if (!mounted) return;
-      setState(() => _error = error.toString().replaceFirst('FormatException: ', ''));
+      setState(
+        () => _error = error.toString().replaceFirst('FormatException: ', ''),
+      );
     } finally {
       if (mounted) setState(() => _isPicking = false);
     }
@@ -175,7 +178,10 @@ class _Header extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Import Excel', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+              Text(
+                'Import Excel',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+              ),
               SizedBox(height: 4),
               Text(
                 'Importer le fichier annuel, verifier les alertes, puis appliquer.',
@@ -241,22 +247,26 @@ class _EmptyImportState extends StatelessWidget {
             _StepTile(
               icon: AppIcons.fileOpen,
               title: '1. Choisir un fichier .xlsx',
-              description: 'Le format actuel avec deux lignes d en-tete est reconnu automatiquement.',
+              description:
+                  'Le format actuel avec deux lignes d en-tete est reconnu automatiquement.',
             ),
             _StepTile(
               icon: AppIcons.rule,
               title: '2. Verifier le rapport',
-              description: 'References manquantes, doublons et activites inconnues sont signales.',
+              description:
+                  'References manquantes, doublons et activites inconnues sont signales.',
             ),
             _StepTile(
               icon: AppIcons.warning,
               title: '3. Completer les brouillons',
-              description: 'Les lignes sans reference restent importables mais seront visibles comme incompletes.',
+              description:
+                  'Les lignes sans reference restent importables mais seront visibles comme incompletes.',
             ),
             _StepTile(
               icon: AppIcons.cloudDone,
               title: '4. Appliquer',
-              description: 'Ajouter aux donnees locales ou remplacer la base locale apres confirmation.',
+              description:
+                  'Ajouter aux donnees locales ou remplacer la base locale apres confirmation.',
             ),
           ],
         ),
@@ -310,7 +320,9 @@ class _ImportReport extends StatelessWidget {
               label: 'Alertes',
               value: '${result.warningCount}',
               icon: AppIcons.warning,
-              color: result.hasWarnings ? const Color(0xFFB45309) : const Color(0xFF15803D),
+              color: result.hasWarnings
+                  ? const Color(0xFFB45309)
+                  : const Color(0xFF15803D),
               compact: true,
             ),
           ],
@@ -374,7 +386,10 @@ class _WarningsPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Rapport d import', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const Text(
+              'Rapport d import',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 12),
             _WarningRow(
               label: 'References manquantes',
@@ -429,7 +444,10 @@ class _PreviewPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Apercu', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const Text(
+              'Apercu',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 12),
             Expanded(
               child: ListView.separated(
@@ -451,13 +469,20 @@ class _PreviewPanel extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           [
-                            line.reference.isEmpty ? 'Ref manquante' : line.reference,
-                            line.activity.isEmpty ? 'Activite manquante' : line.activity,
+                            line.reference.isEmpty
+                                ? 'Ref manquante'
+                                : line.reference,
+                            line.activity.isEmpty
+                                ? 'Activite manquante'
+                                : line.activity,
                             'Eff ${line.billedStaff}/${line.paidStaff}',
                           ].join('  |  '),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                          style: const TextStyle(
+                            color: Color(0xFF64748B),
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     ),
@@ -514,7 +539,13 @@ class _ReportTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Color(0xFF64748B),
+                    fontSize: 12,
+                  ),
+                ),
                 const SizedBox(height: 3),
                 Text(
                   value,
@@ -549,7 +580,11 @@ class _WarningRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         children: [
-          AppIcon(active ? AppIcons.warning : AppIcons.cloudDone, size: 17, color: color),
+          AppIcon(
+            active ? AppIcons.warning : AppIcons.cloudDone,
+            size: 17,
+            color: color,
+          ),
           const SizedBox(width: 8),
           Expanded(child: Text(label)),
           Text(
@@ -648,9 +683,15 @@ class _StepTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
                 const SizedBox(height: 3),
-                Text(description, style: const TextStyle(color: Color(0xFF64748B))),
+                Text(
+                  description,
+                  style: const TextStyle(color: Color(0xFF64748B)),
+                ),
               ],
             ),
           ),

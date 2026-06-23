@@ -1,10 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../models/billing_line.dart';
 import '../sync/pending_change.dart';
-import '../sync/sync_queue.dart';
 import '../theme/app_icons.dart';
 import '../widgets/app_icon.dart';
 import '../widgets/editable_cell.dart';
@@ -18,14 +15,28 @@ class FacturationPage extends StatefulWidget {
     required this.selectedYear,
     required this.onYearChanged,
     required this.onLinesChanged,
+    required this.onPendingChanges,
+    required this.pendingOutboxCount,
+    required this.offline,
+    required this.syncing,
+    required this.remoteSyncConfigured,
+    required this.onOfflineChanged,
     required this.onOpenImport,
+    required this.onOpenExport,
   });
 
   final List<BillingLine> lines;
   final int selectedYear;
   final ValueChanged<int> onYearChanged;
   final ValueChanged<List<BillingLine>> onLinesChanged;
+  final ValueChanged<List<PendingChange>> onPendingChanges;
+  final int pendingOutboxCount;
+  final bool offline;
+  final bool syncing;
+  final bool remoteSyncConfigured;
+  final ValueChanged<bool> onOfflineChanged;
   final VoidCallback onOpenImport;
+  final VoidCallback onOpenExport;
 
   @override
   State<FacturationPage> createState() => _FacturationPageState();
@@ -33,16 +44,14 @@ class FacturationPage extends StatefulWidget {
 
 class _FacturationPageState extends State<FacturationPage> {
   late List<BillingLine> _lines;
-  final SyncQueue _syncQueue = SyncQueue();
   BillingLine? _selectedLine;
   String _query = '';
   String _activityFilter = 'Toutes';
   String _statusFilter = 'Actif';
   bool _onlyWithBalance = false;
   bool _onlyIncomplete = false;
+  bool _remoteNoticeShown = false;
   late int _year;
-  bool _offline = false;
-  Timer? _syncTimer;
 
   @override
   void initState() {
@@ -60,23 +69,51 @@ class _FacturationPageState extends State<FacturationPage> {
     if (widget.selectedYear != oldWidget.selectedYear) {
       _year = widget.selectedYear;
     }
+    _scheduleRemoteNotice();
   }
 
   @override
-  void dispose() {
-    _syncTimer?.cancel();
-    super.dispose();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scheduleRemoteNotice();
+  }
+
+  void _scheduleRemoteNotice() {
+    if (_remoteNoticeShown || widget.remoteSyncConfigured) return;
+    _remoteNoticeShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Base distante non configuree'),
+          content: const Text(
+            'Les modifications sont sauvegardees sur cet ordinateur. '
+            'Elles resteront en attente tant que la base distante ne sera pas configuree.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Compris'),
+            ),
+          ],
+        ),
+      );
+    });
   }
 
   List<BillingLine> get _filteredLines {
     final q = _query.trim().toLowerCase();
     return _lines.where((line) {
-      final matchesQuery = q.isEmpty ||
+      final matchesQuery =
+          q.isEmpty ||
           line.reference.toLowerCase().contains(q) ||
           line.name.toLowerCase().contains(q) ||
           line.activity.toLowerCase().contains(q);
-      final matchesActivity = _activityFilter == 'Toutes' || line.activity == _activityFilter;
-      final matchesStatus = _statusFilter == 'Tous' || line.status == _statusFilter;
+      final matchesActivity =
+          _activityFilter == 'Toutes' || line.activity == _activityFilter;
+      final matchesStatus =
+          _statusFilter == 'Tous' || line.status == _statusFilter;
       final matchesBalance = !_onlyWithBalance || line.balanceDue(_year) > 0;
       final matchesIncomplete = !_onlyIncomplete || line.isIncomplete;
       return matchesQuery &&
@@ -88,20 +125,33 @@ class _FacturationPageState extends State<FacturationPage> {
   }
 
   int get _pendingChanges {
-    final lineLevelPending = _lines.where((line) => line.syncState != SyncState.synced).length;
-    return _syncQueue.pendingCount > lineLevelPending ? _syncQueue.pendingCount : lineLevelPending;
+    final lineLevelPending = _lines
+        .where((line) => line.syncState != SyncState.synced)
+        .length;
+    return widget.pendingOutboxCount > lineLevelPending
+        ? widget.pendingOutboxCount
+        : lineLevelPending;
   }
 
   double get _expectedTotal {
-    return _filteredLines.fold<double>(0, (sum, line) => sum + line.expectedDueAmount(_year));
+    return _filteredLines.fold<double>(
+      0,
+      (sum, line) => sum + line.expectedDueAmount(_year),
+    );
   }
 
   double get _paidTotal {
-    return _filteredLines.fold<double>(0, (sum, line) => sum + line.paidTotalDue(_year));
+    return _filteredLines.fold<double>(
+      0,
+      (sum, line) => sum + line.paidTotalDue(_year),
+    );
   }
 
   double get _balanceTotal {
-    return _filteredLines.fold<double>(0, (sum, line) => sum + line.balanceDue(_year));
+    return _filteredLines.fold<double>(
+      0,
+      (sum, line) => sum + line.balanceDue(_year),
+    );
   }
 
   int get _billedStaffTotal {
@@ -126,59 +176,45 @@ class _FacturationPageState extends State<FacturationPage> {
   }
 
   void _updateLine(BillingLine oldLine, BillingLine newLine) {
+    var pendingChanges = <PendingChange>[];
     setState(() {
       final index = _lines.indexOf(oldLine);
       if (index == -1) return;
-      _enqueueDiffs(oldLine, newLine, index);
-      final updated = newLine.copyWith(syncState: _offline ? SyncState.dirty : SyncState.syncing);
+      pendingChanges = _enqueueDiffs(oldLine, newLine);
+      final updated = newLine.copyWith(
+        syncState: widget.offline || !widget.remoteSyncConfigured
+            ? SyncState.dirty
+            : SyncState.syncing,
+      );
       _lines[index] = updated;
       if (_selectedLine == oldLine) _selectedLine = updated;
     });
     widget.onLinesChanged(_lines);
-
-    _syncTimer?.cancel();
-    _syncTimer = Timer(const Duration(milliseconds: 900), _markPendingAsSynced);
+    if (pendingChanges.isNotEmpty) {
+      widget.onPendingChanges(pendingChanges);
+    }
   }
 
-  void _markPendingAsSynced() {
-    if (_offline) return;
-    setState(() {
-      _syncQueue.markPendingAsSynced();
-      _syncQueue.pruneSynced();
-      _lines = [
-        for (final line in _lines)
-          if (line.syncState == SyncState.syncing || line.syncState == SyncState.dirty)
-            line.copyWith(syncState: SyncState.synced)
-          else
-            line,
-      ];
-      if (_selectedLine != null) {
-        _selectedLine = _lines.firstWhere(
-          (line) => line.reference == _selectedLine!.reference,
-          orElse: () => _selectedLine!,
-        );
-      }
-    });
-    widget.onLinesChanged(_lines);
-  }
-
-  void _enqueueDiffs(BillingLine oldLine, BillingLine newLine, int lineIndex) {
-    final reference = newLine.reference.trim().isEmpty
-        ? '__draft_line_$lineIndex'
-        : newLine.reference.trim();
+  List<PendingChange> _enqueueDiffs(
+    BillingLine oldLine,
+    BillingLine newLine,
+  ) {
+    final changes = <PendingChange>[];
+    final reference = newLine.reference.trim();
 
     void enqueueLineField(String field, Object? oldValue, Object? newValue) {
       if (oldValue == newValue) return;
-      _syncQueue.enqueue(
-        PendingChange(
-          id: '${DateTime.now().microsecondsSinceEpoch}_$field',
-          reference: reference,
-          scope: ChangeScope.line,
-          field: field,
-          value: newValue,
-          createdAt: DateTime.now(),
-        ),
+      final now = DateTime.now();
+      final change = PendingChange(
+        id: '${now.microsecondsSinceEpoch}_$field',
+        lineId: newLine.id,
+        reference: reference,
+        scope: ChangeScope.line,
+        field: field,
+        value: newValue,
+        createdAt: now,
       );
+      changes.add(change);
     }
 
     enqueueLineField('reference', oldLine.reference, newLine.reference);
@@ -186,43 +222,54 @@ class _FacturationPageState extends State<FacturationPage> {
     enqueueLineField('activity', oldLine.activity, newLine.activity);
     enqueueLineField('startDate', oldLine.startDate, newLine.startDate);
     enqueueLineField('endDate', oldLine.endDate, newLine.endDate);
-    enqueueLineField('contractNature', oldLine.contractNature, newLine.contractNature);
+    enqueueLineField(
+      'contractNature',
+      oldLine.contractNature,
+      newLine.contractNature,
+    );
     enqueueLineField('billedStaff', oldLine.billedStaff, newLine.billedStaff);
     enqueueLineField('paidStaff', oldLine.paidStaff, newLine.paidStaff);
     final oldAnnual = oldLine.annualBilling(_year);
     final newAnnual = newLine.annualBilling(_year);
     if (oldAnnual.monthlyRate != newAnnual.monthlyRate) {
-      _syncQueue.enqueue(
-        PendingChange(
-          id: '${DateTime.now().microsecondsSinceEpoch}_monthlyRate',
-          reference: reference,
-          scope: ChangeScope.annualBilling,
-          field: 'monthlyRate',
-          value: newAnnual.monthlyRate,
-          year: _year,
-          createdAt: DateTime.now(),
-        ),
+      final now = DateTime.now();
+      final change = PendingChange(
+        id: '${now.microsecondsSinceEpoch}_monthlyRate',
+        lineId: newLine.id,
+        reference: reference,
+        scope: ChangeScope.annualBilling,
+        field: 'monthlyRate',
+        value: newAnnual.monthlyRate,
+        year: _year,
+        createdAt: now,
       );
+      changes.add(change);
     }
     enqueueLineField('status', oldLine.status, newLine.status);
-    enqueueLineField('statusComment', oldLine.statusComment, newLine.statusComment);
+    enqueueLineField(
+      'statusComment',
+      oldLine.statusComment,
+      newLine.statusComment,
+    );
 
     for (final month in months) {
       final oldValue = oldAnnual.payments[month] ?? 0;
       final newValue = newAnnual.payments[month] ?? 0;
       if (oldValue == newValue) continue;
-      _syncQueue.enqueue(
-        PendingChange(
-          id: '${DateTime.now().microsecondsSinceEpoch}_$month',
-          reference: reference,
-          scope: ChangeScope.paymentCell,
-          field: month,
-          value: newValue,
-          year: _year,
-          createdAt: DateTime.now(),
-        ),
+      final now = DateTime.now();
+      final change = PendingChange(
+        id: '${now.microsecondsSinceEpoch}_$month',
+        lineId: newLine.id,
+        reference: reference,
+        scope: ChangeScope.paymentCell,
+        field: month,
+        value: newValue,
+        year: _year,
+        createdAt: now,
       );
+      changes.add(change);
     }
+    return changes;
   }
 
   void _addLine() {
@@ -235,9 +282,7 @@ class _FacturationPageState extends State<FacturationPage> {
       contractNature: '',
       billedStaff: 0,
       paidStaff: 0,
-      annualBillings: {
-        _year: AnnualBillingData.empty(),
-      },
+      annualBillings: {_year: AnnualBillingData.empty()},
       status: 'Actif',
       statusComment: '',
       syncState: SyncState.dirty,
@@ -258,15 +303,15 @@ class _FacturationPageState extends State<FacturationPage> {
       children: [
         _TopBar(
           year: _year,
-          offline: _offline,
+          offline: widget.offline,
+          syncing: widget.syncing,
           pendingChanges: _pendingChanges,
           onYearChanged: (year) {
             setState(() => _year = year);
             widget.onYearChanged(year);
           },
           onOfflineChanged: (value) {
-            setState(() => _offline = value);
-            if (!value) _markPendingAsSynced();
+            widget.onOfflineChanged(value);
           },
           onQueryChanged: (value) => setState(() => _query = value),
         ),
@@ -284,12 +329,17 @@ class _FacturationPageState extends State<FacturationPage> {
                         statusFilter: _statusFilter,
                         onlyWithBalance: _onlyWithBalance,
                         onlyIncomplete: _onlyIncomplete,
-                        onActivityChanged: (value) => setState(() => _activityFilter = value),
-                        onStatusChanged: (value) => setState(() => _statusFilter = value),
-                        onBalanceChanged: (value) => setState(() => _onlyWithBalance = value),
-                        onIncompleteChanged: (value) => setState(() => _onlyIncomplete = value),
+                        onActivityChanged: (value) =>
+                            setState(() => _activityFilter = value),
+                        onStatusChanged: (value) =>
+                            setState(() => _statusFilter = value),
+                        onBalanceChanged: (value) =>
+                            setState(() => _onlyWithBalance = value),
+                        onIncompleteChanged: (value) =>
+                            setState(() => _onlyIncomplete = value),
                         onAddLine: _addLine,
                         onImport: widget.onOpenImport,
+                        onExport: widget.onOpenExport,
                       ),
                       const SizedBox(height: 12),
                       _SummaryStrip(
@@ -307,12 +357,18 @@ class _FacturationPageState extends State<FacturationPage> {
                           selectedYear: _year,
                           duplicateReferences: _duplicateReferences,
                           selectedLine: _selectedLine,
-                          onSelectLine: (line) => setState(() => _selectedLine = line),
+                          onSelectLine: (line) =>
+                              setState(() => _selectedLine = line),
                           onUpdateLine: _updateLine,
                         ),
                       ),
                       const SizedBox(height: 10),
-                      _SyncFooter(offline: _offline, pendingChanges: _pendingChanges),
+                      _SyncFooter(
+                        offline: widget.offline,
+                        syncing: widget.syncing,
+                        remoteSyncConfigured: widget.remoteSyncConfigured,
+                        pendingChanges: _pendingChanges,
+                      ),
                     ],
                   ),
                 ),
@@ -340,6 +396,7 @@ class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.year,
     required this.offline,
+    required this.syncing,
     required this.pendingChanges,
     required this.onYearChanged,
     required this.onOfflineChanged,
@@ -348,6 +405,7 @@ class _TopBar extends StatelessWidget {
 
   final int year;
   final bool offline;
+  final bool syncing;
   final int pendingChanges;
   final ValueChanged<int> onYearChanged;
   final ValueChanged<bool> onOfflineChanged;
@@ -412,7 +470,13 @@ class _TopBar extends StatelessWidget {
               ),
               if (!compact) ...[
                 const SizedBox(width: 10),
-                SyncBadge(state: pendingChanges == 0 ? SyncState.synced : SyncState.dirty),
+                SyncBadge(
+                  state: syncing
+                      ? SyncState.syncing
+                      : pendingChanges == 0
+                      ? SyncState.synced
+                      : SyncState.dirty,
+                ),
               ],
             ],
           ),
@@ -434,6 +498,7 @@ class _FilterBar extends StatelessWidget {
     required this.onIncompleteChanged,
     required this.onAddLine,
     required this.onImport,
+    required this.onExport,
   });
 
   final String activityFilter;
@@ -446,6 +511,7 @@ class _FilterBar extends StatelessWidget {
   final ValueChanged<bool> onIncompleteChanged;
   final VoidCallback onAddLine;
   final VoidCallback onImport;
+  final VoidCallback onExport;
 
   @override
   Widget build(BuildContext context) {
@@ -491,7 +557,7 @@ class _FilterBar extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             OutlinedButton.icon(
-              onPressed: () {},
+              onPressed: onExport,
               icon: AppIcon(AppIcons.exportFile, size: 18),
               label: const Text('Export'),
             ),
@@ -533,11 +599,16 @@ class _SmallSelect extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text('$label : ', style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+          Text(
+            '$label : ',
+            style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+          ),
           DropdownButton<String>(
             value: value,
             underline: const SizedBox.shrink(),
-            items: values.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
+            items: values
+                .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+                .toList(),
             onChanged: (next) {
               if (next != null) onChanged(next);
             },
@@ -611,7 +682,9 @@ class _SummaryStrip extends StatelessWidget {
             value: _money(balanceTotal),
             icon: AppIcons.trend,
             caption: 'vue filtrée',
-            color: balanceTotal > 0 ? const Color(0xFFB45309) : const Color(0xFF15803D),
+            color: balanceTotal > 0
+                ? const Color(0xFFB45309)
+                : const Color(0xFF15803D),
           ),
         ],
       ),
@@ -699,7 +772,10 @@ class _BillingGridState extends State<_BillingGrid> {
           controller: _horizontalController,
           scrollDirection: Axis.horizontal,
           child: SizedBox(
-            width: _BillingGrid.widths.fold<double>(0, (sum, width) => sum + width),
+            width: _BillingGrid.widths.fold<double>(
+              0,
+              (sum, width) => sum + width,
+            ),
             child: Column(
               children: [
                 const _GridHeader(),
@@ -712,12 +788,12 @@ class _BillingGridState extends State<_BillingGrid> {
                       return _GridRow(
                         line: line,
                         selectedYear: widget.selectedYear,
-                        hasDuplicateReference: widget.duplicateReferences.contains(
-                          line.reference.trim().toUpperCase(),
-                        ),
+                        hasDuplicateReference: widget.duplicateReferences
+                            .contains(line.reference.trim().toUpperCase()),
                         selected: line == widget.selectedLine,
                         onSelect: () => widget.onSelectLine(line),
-                        onUpdate: (updated) => widget.onUpdateLine(line, updated),
+                        onUpdate: (updated) =>
+                            widget.onUpdateLine(line, updated),
                       );
                     },
                   ),
@@ -819,8 +895,8 @@ class _GridRow extends StatelessWidget {
     final background = selected
         ? const Color(0xFFEFF6FF)
         : line.isIncomplete
-            ? const Color(0xFFFFFBEB)
-            : Colors.white;
+        ? const Color(0xFFFFFBEB)
+        : Colors.white;
 
     return InkWell(
       onTap: onSelect,
@@ -834,7 +910,9 @@ class _GridRow extends StatelessWidget {
               width: _BillingGrid.widths[0],
               isRequired: true,
               hasError: hasDuplicateReference,
-              errorMessage: hasDuplicateReference ? 'Reference deja utilisee' : null,
+              errorMessage: hasDuplicateReference
+                  ? 'Reference deja utilisee'
+                  : null,
               onChanged: (value) => onUpdate(line.copyWith(reference: value)),
             ),
             EditableCell(
@@ -862,19 +940,22 @@ class _GridRow extends StatelessWidget {
             EditableCell(
               value: line.contractNature,
               width: _BillingGrid.widths[5],
-              onChanged: (value) => onUpdate(line.copyWith(contractNature: value)),
+              onChanged: (value) =>
+                  onUpdate(line.copyWith(contractNature: value)),
             ),
             EditableCell(
               value: '${line.billedStaff}',
               width: _BillingGrid.widths[6],
               textAlign: TextAlign.right,
-              onChanged: (value) => onUpdate(line.copyWith(billedStaff: _parseInt(value))),
+              onChanged: (value) =>
+                  onUpdate(line.copyWith(billedStaff: _parseInt(value))),
             ),
             EditableCell(
               value: '${line.paidStaff}',
               width: _BillingGrid.widths[7],
               textAlign: TextAlign.right,
-              onChanged: (value) => onUpdate(line.copyWith(paidStaff: _parseInt(value))),
+              onChanged: (value) =>
+                  onUpdate(line.copyWith(paidStaff: _parseInt(value))),
             ),
             EditableCell(
               value: _number(annual.monthlyRate),
@@ -952,15 +1033,18 @@ class _DropdownCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final menuValues = values.contains(value) ? values : [value, ...values];
+    final selectedValue = menuValues.contains(value) ? value : menuValues.first;
 
     return SizedBox(
       width: width,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: DropdownButtonFormField<String>(
-          initialValue: menuValues.first,
+          initialValue: selectedValue,
           isExpanded: true,
-          decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 8)),
+          decoration: const InputDecoration(
+            contentPadding: EdgeInsets.symmetric(horizontal: 8),
+          ),
           items: menuValues.map((item) {
             final label = item.isEmpty ? 'A renseigner' : item;
             return DropdownMenuItem(value: item, child: Text(label));
@@ -1010,9 +1094,14 @@ class _LineDetailPanel extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-            Text(line.reference.isEmpty ? 'Reference manquante' : line.reference),
+            Text(
+              line.reference.isEmpty ? 'Reference manquante' : line.reference,
+            ),
             const SizedBox(height: 6),
-            Text(line.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            Text(
+              line.name,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -1024,23 +1113,48 @@ class _LineDetailPanel extends StatelessWidget {
             ),
             const Divider(height: 28),
             _DetailItem(label: 'Activite', value: line.activity),
-            _DetailItem(label: 'Contrat', value: '${line.startDate} -> ${line.endDate.isEmpty ? 'Actif' : line.endDate}'),
-            _DetailItem(label: 'Effectif facture', value: '${line.billedStaff}'),
+            _DetailItem(
+              label: 'Contrat',
+              value:
+                  '${line.startDate} -> ${line.endDate.isEmpty ? 'Actif' : line.endDate}',
+            ),
+            _DetailItem(
+              label: 'Effectif facture',
+              value: '${line.billedStaff}',
+            ),
             _DetailItem(label: 'Effectif paye', value: '${line.paidStaff}'),
             _DetailItem(label: 'Annee', value: '$selectedYear'),
-            _DetailItem(label: 'Tarif mensuel', value: _money(annual.monthlyRate)),
+            _DetailItem(
+              label: 'Tarif mensuel',
+              value: _money(annual.monthlyRate),
+            ),
             const Divider(height: 28),
             _DetailItem(
               label: 'Mois dus',
               value: '${line.billingMonthsDue(selectedYear)} / 12',
             ),
-            _DetailItem(label: 'Attendu a date', value: _money(line.expectedDueAmount(selectedYear))),
-            _DetailItem(label: 'Total paye a date', value: _money(line.paidTotalDue(selectedYear))),
-            _DetailItem(label: 'Reliquat', value: _money(line.balanceDue(selectedYear))),
-            _DetailItem(label: 'Attendu annuel', value: _money(line.expectedYearAmount(selectedYear))),
+            _DetailItem(
+              label: 'Attendu a date',
+              value: _money(line.expectedDueAmount(selectedYear)),
+            ),
+            _DetailItem(
+              label: 'Total paye a date',
+              value: _money(line.paidTotalDue(selectedYear)),
+            ),
+            _DetailItem(
+              label: 'Reliquat',
+              value: _money(line.balanceDue(selectedYear)),
+            ),
+            _DetailItem(
+              label: 'Attendu annuel',
+              value: _money(line.expectedYearAmount(selectedYear)),
+            ),
             if (line.statusComment.isNotEmpty) ...[
               const Divider(height: 28),
-              const Text('Commentaire', style: TextStyle(fontWeight: FontWeight.w800)),
+              const Text(
+                'Commentaire',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
               const SizedBox(height: 6),
               Text(line.statusComment),
             ],
@@ -1064,7 +1178,10 @@ class _DetailItem extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Text(label, style: const TextStyle(color: Color(0xFF64748B))),
+            child: Text(
+              label,
+              style: const TextStyle(color: Color(0xFF64748B)),
+            ),
           ),
           Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
         ],
@@ -1074,18 +1191,29 @@ class _DetailItem extends StatelessWidget {
 }
 
 class _SyncFooter extends StatelessWidget {
-  const _SyncFooter({required this.offline, required this.pendingChanges});
+  const _SyncFooter({
+    required this.offline,
+    required this.syncing,
+    required this.remoteSyncConfigured,
+    required this.pendingChanges,
+  });
 
   final bool offline;
+  final bool syncing;
+  final bool remoteSyncConfigured;
   final int pendingChanges;
 
   @override
   Widget build(BuildContext context) {
     final message = offline
         ? 'Hors ligne - vos modifications sont conservees sur cet ordinateur.'
+        : !remoteSyncConfigured && pendingChanges > 0
+        ? 'Base distante non configuree - modifications conservees localement.'
+        : syncing
+        ? 'Synchronisation en arriere-plan...'
         : pendingChanges == 0
-            ? 'Tout est enregistre.'
-            : '$pendingChanges modification(s) en attente de synchronisation.';
+        ? 'Tout est enregistre.'
+        : '$pendingChanges modification(s) en attente de synchronisation.';
 
     return Container(
       height: 34,
@@ -1127,9 +1255,13 @@ String _number(double value) {
 }
 
 int _parseInt(String value) {
-  return int.tryParse(value.replaceAll(' ', '').replaceAll(',', '').trim()) ?? 0;
+  return int.tryParse(value.replaceAll(' ', '').replaceAll(',', '').trim()) ??
+      0;
 }
 
 double _parseMoney(String value) {
-  return double.tryParse(value.replaceAll(' ', '').replaceAll(',', '.').trim()) ?? 0;
+  return double.tryParse(
+        value.replaceAll(' ', '').replaceAll(',', '.').trim(),
+      ) ??
+      0;
 }

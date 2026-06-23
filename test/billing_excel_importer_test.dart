@@ -57,22 +57,8 @@ void main() {
           10000,
           20000,
         ],
-        [
-          '',
-          'AES',
-          'Gardiennage',
-          44197,
-          44561,
-          '',
-          '3',
-          '2',
-          'desactive',
-        ],
-        [
-          'TOTAUX',
-          '',
-          '',
-        ],
+        ['', 'AES', 'Gardiennage', 44197, 44561, '', '3', '2', 'desactive'],
+        ['TOTAUX', '', ''],
       ],
       year: 2026,
       sourceName: 'test.xlsx',
@@ -97,14 +83,11 @@ void main() {
   test('reports duplicate references and unknown activities', () {
     const importer = BillingExcelImporter();
 
-    final result = importer.parseRows(
-      [
-        ['Reference', 'SITE', 'ACTIVITE'],
-        ['REF-001', 'Client A', 'Inconnue'],
-        ['ref-001', 'Client B', 'CAMERA'],
-      ],
-      year: 2026,
-    );
+    final result = importer.parseRows([
+      ['Reference', 'SITE', 'ACTIVITE'],
+      ['REF-001', 'Client A', 'Inconnue'],
+      ['ref-001', 'Client B', 'CAMERA'],
+    ], year: 2026);
 
     expect(result.duplicateReferences, {'REF-001'});
     expect(result.unknownActivities, {'INCONNUE'});

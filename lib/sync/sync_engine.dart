@@ -4,10 +4,7 @@ import 'sync_queue.dart';
 typedef PushChange = Future<void> Function(PendingChange change);
 
 class SyncEngine {
-  SyncEngine({
-    required this.queue,
-    required this.pushChange,
-  });
+  SyncEngine({required this.queue, required this.pushChange});
 
   final SyncQueue queue;
   final PushChange pushChange;

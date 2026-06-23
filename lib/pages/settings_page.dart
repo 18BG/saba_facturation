@@ -17,7 +17,10 @@ class SettingsPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Parametres', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+          const Text(
+            'Parametres',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+          ),
           const SizedBox(height: 4),
           const Text(
             'Listes et preferences simples du MVP.',
@@ -35,13 +38,20 @@ class SettingsPage extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Activites', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                          const Text(
+                            'Activites',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                           const SizedBox(height: 12),
                           Wrap(
                             spacing: 8,
                             runSpacing: 8,
                             children: [
-                              for (final activity in activities) Chip(label: Text(activity)),
+                              for (final activity in activities)
+                                Chip(label: Text(activity)),
                             ],
                           ),
                         ],
@@ -57,17 +67,27 @@ class SettingsPage extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Statuts', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                          const Text(
+                            'Statuts',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                           const SizedBox(height: 12),
                           Wrap(
                             spacing: 8,
                             runSpacing: 8,
                             children: [
-                              for (final status in statuses) Chip(label: Text(status)),
+                              for (final status in statuses)
+                                Chip(label: Text(status)),
                             ],
                           ),
                           const SizedBox(height: 24),
-                          const Text('Annee par defaut', style: TextStyle(fontWeight: FontWeight.w800)),
+                          const Text(
+                            'Annee par defaut',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
                           const SizedBox(height: 8),
                           TextField(
                             decoration: InputDecoration(
@@ -84,7 +104,10 @@ class SettingsPage extends StatelessWidget {
                             const SizedBox(height: 14),
                             const Text(
                               'Debug',
-                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                             const SizedBox(height: 6),
                             const Text(
@@ -95,7 +118,9 @@ class SettingsPage extends StatelessWidget {
                             OutlinedButton.icon(
                               onPressed: () => _confirmReset(context),
                               icon: AppIcon(AppIcons.warning, size: 18),
-                              label: const Text('Reinitialiser les donnees locales'),
+                              label: const Text(
+                                'Reinitialiser les donnees locales',
+                              ),
                             ),
                           ],
                         ],

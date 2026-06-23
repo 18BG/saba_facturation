@@ -19,7 +19,9 @@ void main() {
         ),
         2026: AnnualBillingData(
           monthlyRate: 1500,
-          payments: {for (final month in months) month: month == 'Jan' ? 3000 : 0},
+          payments: {
+            for (final month in months) month: month == 'Jan' ? 3000 : 0,
+          },
         ),
       },
       status: 'Actif',
@@ -49,7 +51,9 @@ void main() {
       annualBillings: {
         2026: AnnualBillingData(
           monthlyRate: 25000,
-          payments: {for (final month in months) month: month == 'Jan' ? 75000 : 0},
+          payments: {
+            for (final month in months) month: month == 'Jan' ? 75000 : 0,
+          },
         ),
       },
       status: 'Actif',
@@ -59,6 +63,7 @@ void main() {
 
     final restored = BillingLine.fromJson(line.toJson());
 
+    expect(restored.id, line.id);
     expect(restored.reference, line.reference);
     expect(restored.name, line.name);
     expect(restored.annualBilling(2026).monthlyRate, 25000);
@@ -66,35 +71,38 @@ void main() {
     expect(restored.syncState, SyncState.dirty);
   });
 
-  test('computes balance only through the last closed month for current year', () {
-    final line = BillingLine(
-      reference: 'FAC-CURRENT',
-      name: 'Client courant',
-      activity: 'GARDIENNAGE',
-      startDate: '',
-      endDate: '',
-      contractNature: '',
-      billedStaff: 1,
-      paidStaff: 1,
-      annualBillings: {
-        2026: AnnualBillingData(
-          monthlyRate: 100000,
-          payments: {for (final month in months) month: 0},
-        ),
-      },
-      status: 'Actif',
-      statusComment: '',
-      syncState: SyncState.synced,
-    );
+  test(
+    'computes balance only through the last closed month for current year',
+    () {
+      final line = BillingLine(
+        reference: 'FAC-CURRENT',
+        name: 'Client courant',
+        activity: 'GARDIENNAGE',
+        startDate: '',
+        endDate: '',
+        contractNature: '',
+        billedStaff: 1,
+        paidStaff: 1,
+        annualBillings: {
+          2026: AnnualBillingData(
+            monthlyRate: 100000,
+            payments: {for (final month in months) month: 0},
+          ),
+        },
+        status: 'Actif',
+        statusComment: '',
+        syncState: SyncState.synced,
+      );
 
-    final asOfMarch = DateTime(2026, 3, 15);
+      final asOfMarch = DateTime(2026, 3, 15);
 
-    expect(line.billingMonthsDue(2026, asOf: asOfMarch), 2);
-    expect(line.expectedDueAmount(2026, asOf: asOfMarch), 200000);
-    expect(line.paidTotalDue(2026, asOf: asOfMarch), 0);
-    expect(line.balanceDue(2026, asOf: asOfMarch), 200000);
-    expect(line.expectedYearAmount(2026), 1200000);
-  });
+      expect(line.billingMonthsDue(2026, asOf: asOfMarch), 2);
+      expect(line.expectedDueAmount(2026, asOf: asOfMarch), 200000);
+      expect(line.paidTotalDue(2026, asOf: asOfMarch), 0);
+      expect(line.balanceDue(2026, asOf: asOfMarch), 200000);
+      expect(line.expectedYearAmount(2026), 1200000);
+    },
+  );
 
   test('does not include current unfinished month in due balance', () {
     final line = BillingLine(
