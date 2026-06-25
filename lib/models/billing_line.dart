@@ -13,6 +13,8 @@ const activities = <String>[
 
 const statuses = <String>['Actif', 'Desactive', 'Autre'];
 
+const disabledStatus = 'Desactive';
+
 const months = <String>[
   'Jan',
   'Fev',
@@ -200,6 +202,8 @@ class BillingLine {
         activity.trim().isEmpty;
   }
 
+  bool get countsInBillingTotals => status != disabledStatus;
+
   BillingLine withAnnualBilling(int year, AnnualBillingData annualBilling) {
     return copyWith(annualBillings: {...annualBillings, year: annualBilling});
   }
@@ -256,6 +260,10 @@ class BillingLine {
       'syncState': syncState.name,
     };
   }
+}
+
+Iterable<BillingLine> linesCountedInBillingTotals(Iterable<BillingLine> lines) {
+  return lines.where((line) => line.countsInBillingTotals);
 }
 
 String newBillingLineId() {

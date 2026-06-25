@@ -131,4 +131,31 @@ void main() {
     expect(line.expectedDueAmount(2026, asOf: june19), 500000);
     expect(line.balanceDue(2026, asOf: june19), 500000);
   });
+
+  test('excludes disabled lines from billing aggregate helpers', () {
+    BillingLine line(String status) {
+      return BillingLine(
+        reference: status,
+        name: 'Client $status',
+        activity: 'GARDIENNAGE',
+        startDate: '',
+        endDate: '',
+        contractNature: '',
+        billedStaff: 1,
+        paidStaff: 1,
+        annualBillings: {2026: AnnualBillingData.empty()},
+        status: status,
+        statusComment: '',
+        syncState: SyncState.synced,
+      );
+    }
+
+    final counted = linesCountedInBillingTotals([
+      line('Actif'),
+      line('Desactive'),
+      line('Autre'),
+    ]).toList();
+
+    expect(counted.map((line) => line.status), ['Actif', 'Autre']);
+  });
 }

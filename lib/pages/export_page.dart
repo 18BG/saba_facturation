@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../export/billing_excel_exporter.dart';
 import '../models/billing_line.dart';
+import '../models/billing_years.dart';
 import '../theme/app_icons.dart';
 import '../widgets/app_icon.dart';
 
@@ -48,6 +49,8 @@ class _ExportPageState extends State<ExportPage> {
   }
 
   Future<void> _exportFile() async {
+    if (_exportableCount == 0) return;
+
     setState(() => _isExporting = true);
 
     try {
@@ -124,10 +127,12 @@ class _ExportPageState extends State<ExportPage> {
                     DropdownButtonFormField<int>(
                       initialValue: _year,
                       decoration: const InputDecoration(labelText: 'Annee'),
-                      items: const [
-                        DropdownMenuItem(value: 2024, child: Text('2024')),
-                        DropdownMenuItem(value: 2025, child: Text('2025')),
-                        DropdownMenuItem(value: 2026, child: Text('2026')),
+                      items: [
+                        for (final option in billingYearOptions())
+                          DropdownMenuItem(
+                            value: option,
+                            child: Text('$option'),
+                          ),
                       ],
                       onChanged: (value) {
                         if (value != null) setState(() => _year = value);
@@ -153,6 +158,14 @@ class _ExportPageState extends State<ExportPage> {
                       onChanged: (value) =>
                           setState(() => _includeBalance = value),
                     ),
+                    if (_exportableCount == 0) ...[
+                      const SizedBox(height: 8),
+                      _InfoLine(
+                        icon: AppIcons.warning,
+                        text:
+                            'Aucune ligne ne correspond aux options choisies.',
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     _InfoLine(
                       icon: AppIcons.rule,
@@ -161,7 +174,7 @@ class _ExportPageState extends State<ExportPage> {
                     ),
                     const SizedBox(height: 16),
                     FilledButton.icon(
-                      onPressed: _isExporting || widget.lines.isEmpty
+                      onPressed: _isExporting || _exportableCount == 0
                           ? null
                           : _exportFile,
                       icon: _isExporting

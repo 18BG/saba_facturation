@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../models/billing_line.dart';
+import '../models/billing_years.dart';
 import '../sync/pending_change.dart';
 import '../theme/app_icons.dart';
+import '../validation/billing_validation.dart';
 import '../widgets/app_icon.dart';
 import '../widgets/editable_cell.dart';
 import '../widgets/metric_tile.dart';
@@ -16,11 +18,13 @@ class FacturationPage extends StatefulWidget {
     required this.onYearChanged,
     required this.onLinesChanged,
     required this.onPendingChanges,
+    required this.onDeleteLine,
     required this.pendingOutboxCount,
     required this.offline,
     required this.syncing,
     required this.remoteSyncConfigured,
     required this.onOfflineChanged,
+    required this.onRetrySync,
     required this.onOpenImport,
     required this.onOpenExport,
   });
@@ -30,11 +34,13 @@ class FacturationPage extends StatefulWidget {
   final ValueChanged<int> onYearChanged;
   final ValueChanged<List<BillingLine>> onLinesChanged;
   final ValueChanged<List<PendingChange>> onPendingChanges;
+  final ValueChanged<BillingLine> onDeleteLine;
   final int pendingOutboxCount;
   final bool offline;
   final bool syncing;
   final bool remoteSyncConfigured;
   final ValueChanged<bool> onOfflineChanged;
+  final VoidCallback onRetrySync;
   final VoidCallback onOpenImport;
   final VoidCallback onOpenExport;
 
@@ -104,6 +110,7 @@ class _FacturationPageState extends State<FacturationPage> {
 
   List<BillingLine> get _filteredLines {
     final q = _query.trim().toLowerCase();
+    final duplicateReferences = _duplicateReferences;
     return _lines.where((line) {
       final matchesQuery =
           q.isEmpty ||
@@ -115,7 +122,10 @@ class _FacturationPageState extends State<FacturationPage> {
       final matchesStatus =
           _statusFilter == 'Tous' || line.status == _statusFilter;
       final matchesBalance = !_onlyWithBalance || line.balanceDue(_year) > 0;
-      final matchesIncomplete = !_onlyIncomplete || line.isIncomplete;
+      final hasIssue =
+          duplicateReferences.contains(line.reference.trim().toUpperCase()) ||
+          billingLineIssues(line, year: _year).isNotEmpty;
+      final matchesIncomplete = !_onlyIncomplete || hasIssue;
       return matchesQuery &&
           matchesActivity &&
           matchesStatus &&
@@ -134,32 +144,33 @@ class _FacturationPageState extends State<FacturationPage> {
   }
 
   double get _expectedTotal {
-    return _filteredLines.fold<double>(
-      0,
-      (sum, line) => sum + line.expectedDueAmount(_year),
-    );
+    return linesCountedInBillingTotals(
+      _filteredLines,
+    ).fold<double>(0, (sum, line) => sum + line.expectedDueAmount(_year));
   }
 
   double get _paidTotal {
-    return _filteredLines.fold<double>(
-      0,
-      (sum, line) => sum + line.paidTotalDue(_year),
-    );
+    return linesCountedInBillingTotals(
+      _filteredLines,
+    ).fold<double>(0, (sum, line) => sum + line.paidTotalDue(_year));
   }
 
   double get _balanceTotal {
-    return _filteredLines.fold<double>(
-      0,
-      (sum, line) => sum + line.balanceDue(_year),
-    );
+    return linesCountedInBillingTotals(
+      _filteredLines,
+    ).fold<double>(0, (sum, line) => sum + line.balanceDue(_year));
   }
 
   int get _billedStaffTotal {
-    return _filteredLines.fold<int>(0, (sum, line) => sum + line.billedStaff);
+    return linesCountedInBillingTotals(
+      _filteredLines,
+    ).fold<int>(0, (sum, line) => sum + line.billedStaff);
   }
 
   int get _paidStaffTotal {
-    return _filteredLines.fold<int>(0, (sum, line) => sum + line.paidStaff);
+    return linesCountedInBillingTotals(
+      _filteredLines,
+    ).fold<int>(0, (sum, line) => sum + line.paidStaff);
   }
 
   Set<String> get _duplicateReferences {
@@ -195,10 +206,7 @@ class _FacturationPageState extends State<FacturationPage> {
     }
   }
 
-  List<PendingChange> _enqueueDiffs(
-    BillingLine oldLine,
-    BillingLine newLine,
-  ) {
+  List<PendingChange> _enqueueDiffs(BillingLine oldLine, BillingLine newLine) {
     final changes = <PendingChange>[];
     final reference = newLine.reference.trim();
 
@@ -269,6 +277,41 @@ class _FacturationPageState extends State<FacturationPage> {
       );
       changes.add(change);
     }
+
+    final hasLineChange = changes.any(
+      (change) => change.scope == ChangeScope.line,
+    );
+    final hasAnnualChange = changes.any(
+      (change) => change.scope != ChangeScope.line,
+    );
+    final now = DateTime.now();
+    if (hasLineChange) {
+      changes.add(
+        PendingChange(
+          id: '${now.microsecondsSinceEpoch}_lineSnapshot',
+          lineId: newLine.id,
+          reference: reference,
+          scope: ChangeScope.line,
+          field: '__lineSnapshot',
+          value: newLine.toJson(),
+          createdAt: now,
+        ),
+      );
+    }
+    if (hasAnnualChange) {
+      changes.add(
+        PendingChange(
+          id: '${now.microsecondsSinceEpoch}_annualSnapshot',
+          lineId: newLine.id,
+          reference: reference,
+          scope: ChangeScope.annualBilling,
+          field: '__annualSnapshot',
+          value: newAnnual.toJson(),
+          year: _year,
+          createdAt: now,
+        ),
+      );
+    }
     return changes;
   }
 
@@ -295,9 +338,49 @@ class _FacturationPageState extends State<FacturationPage> {
     widget.onLinesChanged(_lines);
   }
 
+  Future<void> _deleteLine(BillingLine line) async {
+    final label = line.reference.trim().isEmpty
+        ? line.name.trim()
+        : line.reference.trim();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Supprimer cette ligne ?'),
+          content: Text(
+            label.isEmpty
+                ? 'Cette action retirera la ligne de la facturation.'
+                : 'Cette action retirera "$label" de la facturation.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Supprimer'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _lines = _lines.where((candidate) => candidate.id != line.id).toList();
+      if (_selectedLine?.id == line.id) _selectedLine = null;
+    });
+    widget.onLinesChanged(_lines);
+    widget.onDeleteLine(line);
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _filteredLines;
+    final validation = validateBillingLines(_lines, year: _year);
+    final dueMonths = _billingMonthsDueForYear(_year);
 
     return Column(
       children: [
@@ -346,10 +429,13 @@ class _FacturationPageState extends State<FacturationPage> {
                         lineCount: filtered.length,
                         billedStaff: _billedStaffTotal,
                         paidStaff: _paidStaffTotal,
+                        dueMonths: dueMonths,
                         expectedTotal: _expectedTotal,
                         paidTotal: _paidTotal,
                         balanceTotal: _balanceTotal,
                       ),
+                      const SizedBox(height: 12),
+                      _ValidationStrip(summary: validation),
                       const SizedBox(height: 12),
                       Expanded(
                         child: _BillingGrid(
@@ -360,6 +446,7 @@ class _FacturationPageState extends State<FacturationPage> {
                           onSelectLine: (line) =>
                               setState(() => _selectedLine = line),
                           onUpdateLine: _updateLine,
+                          onDeleteLine: _deleteLine,
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -368,6 +455,7 @@ class _FacturationPageState extends State<FacturationPage> {
                         syncing: widget.syncing,
                         remoteSyncConfigured: widget.remoteSyncConfigured,
                         pendingChanges: _pendingChanges,
+                        onRetrySync: widget.onRetrySync,
                       ),
                     ],
                   ),
@@ -379,6 +467,12 @@ class _FacturationPageState extends State<FacturationPage> {
                     child: _LineDetailPanel(
                       line: _selectedLine!,
                       selectedYear: _year,
+                      duplicateReference: _duplicateReferences.contains(
+                        _selectedLine!.reference.trim().toUpperCase(),
+                      ),
+                      onUpdate: (updated) =>
+                          _updateLine(_selectedLine!, updated),
+                      onDelete: () => _deleteLine(_selectedLine!),
                       onClose: () => setState(() => _selectedLine = null),
                     ),
                   ),
@@ -436,10 +530,9 @@ class _TopBar extends StatelessWidget {
               DropdownButton<int>(
                 value: year,
                 underline: const SizedBox.shrink(),
-                items: const [
-                  DropdownMenuItem(value: 2024, child: Text('2024')),
-                  DropdownMenuItem(value: 2025, child: Text('2025')),
-                  DropdownMenuItem(value: 2026, child: Text('2026')),
+                items: [
+                  for (final option in billingYearOptions())
+                    DropdownMenuItem(value: option, child: Text('$option')),
                 ],
                 onChanged: (value) {
                   if (value != null) onYearChanged(value);
@@ -546,7 +639,7 @@ class _FilterBar extends StatelessWidget {
             FilterChip(
               selected: onlyIncomplete,
               avatar: AppIcon(AppIcons.rule, size: 16),
-              label: const Text('Incompletes'),
+              label: const Text('A revoir'),
               onSelected: onIncompleteChanged,
             ),
             const SizedBox(width: 18),
@@ -624,6 +717,7 @@ class _SummaryStrip extends StatelessWidget {
     required this.lineCount,
     required this.billedStaff,
     required this.paidStaff,
+    required this.dueMonths,
     required this.expectedTotal,
     required this.paidTotal,
     required this.balanceTotal,
@@ -632,6 +726,7 @@ class _SummaryStrip extends StatelessWidget {
   final int lineCount;
   final int billedStaff;
   final int paidStaff;
+  final int dueMonths;
   final double expectedTotal;
   final double paidTotal;
   final double balanceTotal;
@@ -664,6 +759,13 @@ class _SummaryStrip extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           MetricTile(
+            label: 'Mois dus',
+            value: '$dueMonths / 12',
+            icon: AppIcons.calendar,
+            caption: 'annee selectionnee',
+          ),
+          const SizedBox(width: 8),
+          MetricTile(
             label: 'Attendu à date',
             value: _money(expectedTotal),
             icon: AppIcons.receipt,
@@ -692,6 +794,112 @@ class _SummaryStrip extends StatelessWidget {
   }
 }
 
+class _ValidationStrip extends StatelessWidget {
+  const _ValidationStrip({required this.summary});
+
+  final BillingValidationSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!summary.hasIssues) {
+      return Container(
+        height: 38,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF0FDF4),
+          border: Border.all(color: const Color(0xFFBBF7D0)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            AppIcon(
+              AppIcons.cloudDone,
+              size: 17,
+              color: const Color(0xFF15803D),
+            ),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'Aucune alerte metier dans la base locale.',
+                style: TextStyle(
+                  color: Color(0xFF166534),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          AppIcon(AppIcons.warning, size: 17, color: const Color(0xFFB45309)),
+          const Text(
+            'Alertes',
+            style: TextStyle(
+              color: Color(0xFF78350F),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          if (summary.missingReferences > 0)
+            _ValidationPill('${summary.missingReferences} ref. manquante(s)'),
+          if (summary.duplicateReferences > 0)
+            _ValidationPill('${summary.duplicateReferences} ref. doublon(s)'),
+          if (summary.missingNames > 0)
+            _ValidationPill('${summary.missingNames} nom/site manquant(s)'),
+          if (summary.autreWithoutComment > 0)
+            _ValidationPill(
+              '${summary.autreWithoutComment} commentaire(s) requis',
+            ),
+          if (summary.zeroBilledStaff > 0)
+            _ValidationPill('${summary.zeroBilledStaff} eff. facture a 0'),
+          if (summary.zeroMonthlyRate > 0)
+            _ValidationPill('${summary.zeroMonthlyRate} tarif(s) a 0'),
+        ],
+      ),
+    );
+  }
+}
+
+class _ValidationPill extends StatelessWidget {
+  const _ValidationPill(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFFCD34D)),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Color(0xFF78350F),
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
 class _BillingGrid extends StatefulWidget {
   const _BillingGrid({
     required this.lines,
@@ -700,6 +908,7 @@ class _BillingGrid extends StatefulWidget {
     required this.selectedLine,
     required this.onSelectLine,
     required this.onUpdateLine,
+    required this.onDeleteLine,
   });
 
   final List<BillingLine> lines;
@@ -708,8 +917,10 @@ class _BillingGrid extends StatefulWidget {
   final BillingLine? selectedLine;
   final ValueChanged<BillingLine> onSelectLine;
   final void Function(BillingLine oldLine, BillingLine newLine) onUpdateLine;
+  final ValueChanged<BillingLine> onDeleteLine;
 
   static const widths = <double>[
+    100,
     132,
     250,
     150,
@@ -780,23 +991,68 @@ class _BillingGridState extends State<_BillingGrid> {
               children: [
                 const _GridHeader(),
                 Expanded(
-                  child: ListView.builder(
-                    itemCount: widget.lines.length,
-                    itemExtent: 54,
-                    itemBuilder: (context, index) {
-                      final line = widget.lines[index];
-                      return _GridRow(
-                        line: line,
-                        selectedYear: widget.selectedYear,
-                        hasDuplicateReference: widget.duplicateReferences
-                            .contains(line.reference.trim().toUpperCase()),
-                        selected: line == widget.selectedLine,
-                        onSelect: () => widget.onSelectLine(line),
-                        onUpdate: (updated) =>
-                            widget.onUpdateLine(line, updated),
-                      );
-                    },
-                  ),
+                  child: widget.lines.isEmpty
+                      ? const _EmptyGridState()
+                      : ListView.builder(
+                          itemCount: widget.lines.length,
+                          itemExtent: 54,
+                          itemBuilder: (context, index) {
+                            final line = widget.lines[index];
+                            return _GridRow(
+                              line: line,
+                              selectedYear: widget.selectedYear,
+                              hasDuplicateReference: widget.duplicateReferences
+                                  .contains(
+                                    line.reference.trim().toUpperCase(),
+                                  ),
+                              selected: line == widget.selectedLine,
+                              onSelect: () => widget.onSelectLine(line),
+                              onDelete: () => widget.onDeleteLine(line),
+                              onUpdate: (updated) =>
+                                  widget.onUpdateLine(line, updated),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyGridState extends StatelessWidget {
+  const _EmptyGridState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SizedBox(
+        width: 560,
+        child: Center(
+          child: SizedBox(
+            width: 360,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppIcon(
+                  AppIcons.table,
+                  size: 34,
+                  color: const Color(0xFF94A3B8),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Aucune ligne a afficher',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Ajoutez une ligne ou importez le fichier Excel annuel pour commencer.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
                 ),
               ],
             ),
@@ -813,6 +1069,7 @@ class _GridHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final labels = [
+      'Actions',
       'Reference',
       'Nom / Site',
       'Activite',
@@ -879,6 +1136,7 @@ class _GridRow extends StatelessWidget {
     required this.hasDuplicateReference,
     required this.selected,
     required this.onSelect,
+    required this.onDelete,
     required this.onUpdate,
   });
 
@@ -887,6 +1145,7 @@ class _GridRow extends StatelessWidget {
   final bool hasDuplicateReference;
   final bool selected;
   final VoidCallback onSelect;
+  final VoidCallback onDelete;
   final ValueChanged<BillingLine> onUpdate;
 
   @override
@@ -898,120 +1157,161 @@ class _GridRow extends StatelessWidget {
         ? const Color(0xFFFFFBEB)
         : Colors.white;
 
-    return InkWell(
-      onTap: onSelect,
-      child: Container(
-        color: background,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
-            EditableCell(
-              value: line.reference,
-              width: _BillingGrid.widths[0],
-              isRequired: true,
-              hasError: hasDuplicateReference,
-              errorMessage: hasDuplicateReference
-                  ? 'Reference deja utilisee'
-                  : null,
-              onChanged: (value) => onUpdate(line.copyWith(reference: value)),
+    return Container(
+      color: background,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: _BillingGrid.widths[0],
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Tooltip(
+                    message: 'Ouvrir le detail',
+                    child: IconButton(
+                      onPressed: onSelect,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      icon: AppIcon(
+                        AppIcons.fileOpen,
+                        size: 18,
+                        color: selected
+                            ? Theme.of(context).colorScheme.primary
+                            : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                  Tooltip(
+                    message: 'Supprimer la ligne',
+                    child: IconButton(
+                      onPressed: onDelete,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      icon: AppIcon(
+                        AppIcons.warning,
+                        size: 17,
+                        color: const Color(0xFFB91C1C),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
+          ),
+          EditableCell(
+            value: line.reference,
+            width: _BillingGrid.widths[1],
+            isRequired: true,
+            hasError: hasDuplicateReference,
+            errorMessage: hasDuplicateReference
+                ? 'Reference deja utilisee'
+                : null,
+            onChanged: (value) => onUpdate(line.copyWith(reference: value)),
+          ),
+          EditableCell(
+            value: line.name,
+            width: _BillingGrid.widths[2],
+            isRequired: true,
+            onChanged: (value) => onUpdate(line.copyWith(name: value)),
+          ),
+          _DropdownCell(
+            value: line.activity,
+            values: activities,
+            width: _BillingGrid.widths[3],
+            onChanged: (value) => onUpdate(line.copyWith(activity: value)),
+          ),
+          EditableCell(
+            value: line.startDate,
+            width: _BillingGrid.widths[4],
+            onChanged: (value) => onUpdate(line.copyWith(startDate: value)),
+          ),
+          EditableCell(
+            value: line.endDate,
+            width: _BillingGrid.widths[5],
+            onChanged: (value) => onUpdate(line.copyWith(endDate: value)),
+          ),
+          EditableCell(
+            value: line.contractNature,
+            width: _BillingGrid.widths[6],
+            onChanged: (value) =>
+                onUpdate(line.copyWith(contractNature: value)),
+          ),
+          EditableCell(
+            value: '${line.billedStaff}',
+            width: _BillingGrid.widths[7],
+            textAlign: TextAlign.right,
+            onChanged: (value) =>
+                onUpdate(line.copyWith(billedStaff: _parseInt(value))),
+          ),
+          EditableCell(
+            value: '${line.paidStaff}',
+            width: _BillingGrid.widths[8],
+            textAlign: TextAlign.right,
+            onChanged: (value) =>
+                onUpdate(line.copyWith(paidStaff: _parseInt(value))),
+          ),
+          EditableCell(
+            value: _number(annual.monthlyRate),
+            width: _BillingGrid.widths[9],
+            textAlign: TextAlign.right,
+            onChanged: (value) {
+              onUpdate(
+                line.withAnnualBilling(
+                  selectedYear,
+                  annual.copyWith(monthlyRate: _parseMoney(value)),
+                ),
+              );
+            },
+          ),
+          for (var i = 0; i < months.length; i++)
             EditableCell(
-              value: line.name,
-              width: _BillingGrid.widths[1],
-              isRequired: true,
-              onChanged: (value) => onUpdate(line.copyWith(name: value)),
-            ),
-            _DropdownCell(
-              value: line.activity,
-              values: activities,
-              width: _BillingGrid.widths[2],
-              onChanged: (value) => onUpdate(line.copyWith(activity: value)),
-            ),
-            EditableCell(
-              value: line.startDate,
-              width: _BillingGrid.widths[3],
-              onChanged: (value) => onUpdate(line.copyWith(startDate: value)),
-            ),
-            EditableCell(
-              value: line.endDate,
-              width: _BillingGrid.widths[4],
-              onChanged: (value) => onUpdate(line.copyWith(endDate: value)),
-            ),
-            EditableCell(
-              value: line.contractNature,
-              width: _BillingGrid.widths[5],
-              onChanged: (value) =>
-                  onUpdate(line.copyWith(contractNature: value)),
-            ),
-            EditableCell(
-              value: '${line.billedStaff}',
-              width: _BillingGrid.widths[6],
-              textAlign: TextAlign.right,
-              onChanged: (value) =>
-                  onUpdate(line.copyWith(billedStaff: _parseInt(value))),
-            ),
-            EditableCell(
-              value: '${line.paidStaff}',
-              width: _BillingGrid.widths[7],
-              textAlign: TextAlign.right,
-              onChanged: (value) =>
-                  onUpdate(line.copyWith(paidStaff: _parseInt(value))),
-            ),
-            EditableCell(
-              value: _number(annual.monthlyRate),
-              width: _BillingGrid.widths[8],
+              value: _number(annual.payments[months[i]] ?? 0),
+              width: _BillingGrid.widths[10 + i],
               textAlign: TextAlign.right,
               onChanged: (value) {
+                final next = Map<String, double>.of(annual.payments);
+                next[months[i]] = _parseMoney(value);
                 onUpdate(
                   line.withAnnualBilling(
                     selectedYear,
-                    annual.copyWith(monthlyRate: _parseMoney(value)),
+                    annual.copyWith(payments: next),
                   ),
                 );
               },
             ),
-            for (var i = 0; i < months.length; i++)
-              EditableCell(
-                value: _number(annual.payments[months[i]] ?? 0),
-                width: _BillingGrid.widths[9 + i],
-                textAlign: TextAlign.right,
-                onChanged: (value) {
-                  final next = Map<String, double>.of(annual.payments);
-                  next[months[i]] = _parseMoney(value);
-                  onUpdate(
-                    line.withAnnualBilling(
-                      selectedYear,
-                      annual.copyWith(payments: next),
-                    ),
-                  );
-                },
-              ),
-            EditableCell(
-              value: _money(line.paidTotalDue(selectedYear)),
-              width: _BillingGrid.widths[21],
-              textAlign: TextAlign.right,
-              readOnly: true,
-              onChanged: (_) {},
-            ),
-            EditableCell(
-              value: _money(line.balanceDue(selectedYear)),
-              width: _BillingGrid.widths[22],
-              textAlign: TextAlign.right,
-              readOnly: true,
-              onChanged: (_) {},
-            ),
-            _DropdownCell(
-              value: line.status,
-              values: statuses,
-              width: _BillingGrid.widths[23],
-              onChanged: (value) => onUpdate(line.copyWith(status: value)),
-            ),
-            SizedBox(
-              width: _BillingGrid.widths[24],
-              child: Center(child: SyncBadge(state: line.syncState)),
-            ),
-          ],
-        ),
+          EditableCell(
+            value: _money(line.paidTotalDue(selectedYear)),
+            width: _BillingGrid.widths[22],
+            textAlign: TextAlign.right,
+            readOnly: true,
+            onChanged: (_) {},
+          ),
+          EditableCell(
+            value: _money(line.balanceDue(selectedYear)),
+            width: _BillingGrid.widths[23],
+            textAlign: TextAlign.right,
+            readOnly: true,
+            onChanged: (_) {},
+          ),
+          _DropdownCell(
+            value: line.status,
+            values: statuses,
+            width: _BillingGrid.widths[24],
+            onChanged: (value) => onUpdate(line.copyWith(status: value)),
+          ),
+          SizedBox(
+            width: _BillingGrid.widths[25],
+            child: Center(child: SyncBadge(state: line.syncState)),
+          ),
+        ],
       ),
     );
   }
@@ -1062,11 +1362,17 @@ class _LineDetailPanel extends StatelessWidget {
   const _LineDetailPanel({
     required this.line,
     required this.selectedYear,
+    required this.duplicateReference,
+    required this.onUpdate,
+    required this.onDelete,
     required this.onClose,
   });
 
   final BillingLine line;
   final int selectedYear;
+  final bool duplicateReference;
+  final ValueChanged<BillingLine> onUpdate;
+  final VoidCallback onDelete;
   final VoidCallback onClose;
 
   @override
@@ -1074,7 +1380,7 @@ class _LineDetailPanel extends StatelessWidget {
     final annual = line.annualBilling(selectedYear);
 
     return Card(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1111,6 +1417,16 @@ class _LineDetailPanel extends StatelessWidget {
                 SyncBadge(state: line.syncState),
               ],
             ),
+            if (billingLineIssues(line, year: selectedYear).isNotEmpty ||
+                duplicateReference) ...[
+              const SizedBox(height: 12),
+              _LineIssueList(
+                issues: [
+                  if (duplicateReference) 'Reference deja utilisee.',
+                  ...billingLineIssues(line, year: selectedYear),
+                ],
+              ),
+            ],
             const Divider(height: 28),
             _DetailItem(label: 'Activite', value: line.activity),
             _DetailItem(
@@ -1149,17 +1465,89 @@ class _LineDetailPanel extends StatelessWidget {
               label: 'Attendu annuel',
               value: _money(line.expectedYearAmount(selectedYear)),
             ),
-            if (line.statusComment.isNotEmpty) ...[
-              const Divider(height: 28),
-              const Text(
-                'Commentaire',
-                style: TextStyle(fontWeight: FontWeight.w800),
+            const Divider(height: 28),
+            const Text(
+              'Commentaire statut',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              key: ValueKey('statusComment_${line.id}'),
+              initialValue: line.statusComment,
+              minLines: 3,
+              maxLines: 5,
+              decoration: InputDecoration(
+                hintText: line.status == 'Autre'
+                    ? 'Commentaire requis pour le statut Autre'
+                    : 'Ajouter un commentaire si necessaire',
               ),
-              const SizedBox(height: 6),
-              Text(line.statusComment),
-            ],
+              onChanged: (value) =>
+                  onUpdate(line.copyWith(statusComment: value)),
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: onDelete,
+              icon: AppIcon(
+                AppIcons.warning,
+                size: 17,
+                color: const Color(0xFFB91C1C),
+              ),
+              label: const Text('Supprimer la ligne'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFB91C1C),
+              ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LineIssueList extends StatelessWidget {
+  const _LineIssueList({required this.issues});
+
+  final List<String> issues;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final issue in issues)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AppIcon(
+                    AppIcons.warning,
+                    size: 14,
+                    color: const Color(0xFFB45309),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      issue,
+                      style: const TextStyle(
+                        color: Color(0xFF78350F),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1196,12 +1584,14 @@ class _SyncFooter extends StatelessWidget {
     required this.syncing,
     required this.remoteSyncConfigured,
     required this.pendingChanges,
+    required this.onRetrySync,
   });
 
   final bool offline;
   final bool syncing;
   final bool remoteSyncConfigured;
   final int pendingChanges;
+  final VoidCallback onRetrySync;
 
   @override
   Widget build(BuildContext context) {
@@ -1216,7 +1606,7 @@ class _SyncFooter extends StatelessWidget {
         : '$pendingChanges modification(s) en attente de synchronisation.';
 
     return Container(
-      height: 34,
+      height: 40,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1232,6 +1622,17 @@ class _SyncFooter extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Expanded(child: Text(message, style: const TextStyle(fontSize: 12))),
+          if (!offline &&
+              remoteSyncConfigured &&
+              !syncing &&
+              pendingChanges > 0) ...[
+            const SizedBox(width: 8),
+            TextButton.icon(
+              onPressed: onRetrySync,
+              icon: AppIcon(AppIcons.sync, size: 15),
+              label: const Text('Reessayer'),
+            ),
+          ],
         ],
       ),
     );
@@ -1255,13 +1656,43 @@ String _number(double value) {
 }
 
 int _parseInt(String value) {
-  return int.tryParse(value.replaceAll(' ', '').replaceAll(',', '').trim()) ??
-      0;
+  return _parseMoney(value).round();
 }
 
 double _parseMoney(String value) {
-  return double.tryParse(
-        value.replaceAll(' ', '').replaceAll(',', '.').trim(),
-      ) ??
-      0;
+  var cleaned = value.trim().replaceAll(RegExp(r'[^0-9,.\-]'), '');
+  if (cleaned.isEmpty || cleaned == '-') return 0;
+
+  if (cleaned.contains('.') && cleaned.contains(',')) {
+    cleaned = cleaned.replaceAll('.', '').replaceAll(',', '.');
+  } else if (cleaned.contains(',')) {
+    cleaned = _normalizeSingleSeparator(cleaned, ',');
+  } else if (cleaned.contains('.')) {
+    cleaned = _normalizeSingleSeparator(cleaned, '.');
+  }
+
+  return double.tryParse(cleaned) ?? 0;
+}
+
+int _billingMonthsDueForYear(int year, {DateTime? asOf}) {
+  final today = asOf ?? DateTime.now();
+  if (year < today.year) return 12;
+  if (year > today.year) return 0;
+  return (today.month - 1).clamp(0, 12);
+}
+
+String _normalizeSingleSeparator(String value, String separator) {
+  final parts = value.split(separator);
+  if (parts.length == 1) return value;
+
+  final last = parts.last;
+  final separatorLooksLikeThousands =
+      last.length == 3 &&
+      parts.take(parts.length - 1).every((part) => part.isNotEmpty);
+
+  if (separatorLooksLikeThousands) {
+    return parts.join();
+  }
+
+  return separator == ',' ? value.replaceAll(',', '.') : value;
 }

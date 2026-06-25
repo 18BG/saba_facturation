@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:excel/excel.dart';
 
 import '../models/billing_line.dart';
+import '../validation/billing_validation.dart';
 
 class BillingExcelExportOptions {
   const BillingExcelExportOptions({
@@ -40,6 +41,7 @@ class BillingExcelExporter {
       _writeLine(sheet, filteredLines[i], options);
     }
     _writeTotals(sheet, filteredLines, options);
+    _writeAlerts(workbook, filteredLines, options);
     _setColumnWidths(sheet, options);
 
     final bytes = workbook.encode();
@@ -47,6 +49,48 @@ class BillingExcelExporter {
       throw const FormatException('Impossible de generer le fichier Excel.');
     }
     return Uint8List.fromList(bytes);
+  }
+
+  void _writeAlerts(
+    Excel workbook,
+    List<BillingLine> lines,
+    BillingExcelExportOptions options,
+  ) {
+    final duplicateReferences = _duplicateReferences(lines);
+    final alertRows = <List<CellValue?>>[];
+
+    for (final line in lines) {
+      final issues = [
+        if (duplicateReferences.contains(line.reference.trim().toUpperCase()))
+          'Reference deja utilisee.',
+        ...billingLineIssues(line, year: options.year),
+      ];
+      for (final issue in issues) {
+        alertRows.add([
+          TextCellValue(line.reference),
+          TextCellValue(line.name),
+          TextCellValue(line.activity),
+          TextCellValue(issue),
+        ]);
+      }
+    }
+
+    if (alertRows.isEmpty) return;
+
+    final sheet = workbook['Alertes'];
+    sheet.appendRow([
+      TextCellValue('Reference'),
+      TextCellValue('SITE'),
+      TextCellValue('ACTIVITE'),
+      TextCellValue('Alerte'),
+    ]);
+    for (final row in alertRows) {
+      sheet.appendRow(row);
+    }
+    sheet.setColumnWidth(0, 18);
+    sheet.setColumnWidth(1, 30);
+    sheet.setColumnWidth(2, 18);
+    sheet.setColumnWidth(3, 42);
   }
 
   void _writeHeader(Sheet sheet, BillingExcelExportOptions options) {
@@ -111,27 +155,28 @@ class BillingExcelExporter {
     List<BillingLine> lines,
     BillingExcelExportOptions options,
   ) {
-    final totalPaid = lines.fold<double>(
+    final countedLines = linesCountedInBillingTotals(lines).toList();
+    final totalPaid = countedLines.fold<double>(
       0,
       (sum, line) => sum + line.paidTotal(options.year),
     );
-    final totalDueExpected = lines.fold<double>(
+    final totalDueExpected = countedLines.fold<double>(
       0,
       (sum, line) => sum + line.expectedDueAmount(options.year),
     );
-    final totalDuePaid = lines.fold<double>(
+    final totalDuePaid = countedLines.fold<double>(
       0,
       (sum, line) => sum + line.paidTotalDue(options.year),
     );
-    final totalDueBalance = lines.fold<double>(
+    final totalDueBalance = countedLines.fold<double>(
       0,
       (sum, line) => sum + line.balanceDue(options.year),
     );
-    final totalYearExpected = lines.fold<double>(
+    final totalYearExpected = countedLines.fold<double>(
       0,
       (sum, line) => sum + line.expectedYearAmount(options.year),
     );
-    final totalYearBalance = lines.fold<double>(
+    final totalYearBalance = countedLines.fold<double>(
       0,
       (sum, line) => sum + line.balance(options.year),
     );
@@ -143,13 +188,17 @@ class BillingExcelExporter {
       null,
       null,
       null,
-      IntCellValue(lines.fold<int>(0, (sum, line) => sum + line.billedStaff)),
-      IntCellValue(lines.fold<int>(0, (sum, line) => sum + line.paidStaff)),
+      IntCellValue(
+        countedLines.fold<int>(0, (sum, line) => sum + line.billedStaff),
+      ),
+      IntCellValue(
+        countedLines.fold<int>(0, (sum, line) => sum + line.paidStaff),
+      ),
       null,
       null,
       for (final month in months)
         DoubleCellValue(
-          lines.fold<double>(
+          countedLines.fold<double>(
             0,
             (sum, line) =>
                 sum + (line.annualBilling(options.year).payments[month] ?? 0),
@@ -204,5 +253,18 @@ class BillingExcelExporter {
     for (var i = 0; i < columnCount; i++) {
       sheet.setColumnWidth(i, widths[i]);
     }
+  }
+
+  Set<String> _duplicateReferences(List<BillingLine> lines) {
+    final counts = <String, int>{};
+    for (final line in lines) {
+      final reference = line.reference.trim().toUpperCase();
+      if (reference.isEmpty) continue;
+      counts[reference] = (counts[reference] ?? 0) + 1;
+    }
+    return {
+      for (final entry in counts.entries)
+        if (entry.value > 1) entry.key,
+    };
   }
 }

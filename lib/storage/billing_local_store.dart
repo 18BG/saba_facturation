@@ -1,23 +1,12 @@
-import 'dart:convert';
-
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../db/app_database.dart';
 import '../models/billing_line.dart';
 import '../sync/pending_change.dart';
 
 class BillingLocalStore {
-  BillingLocalStore({
-    AppDatabase? database,
-    SharedPreferencesAsync? legacyPreferences,
-  }) : _database = database ?? AppDatabase.defaults(),
-       _legacyPreferences = legacyPreferences ?? SharedPreferencesAsync();
-
-  static const _linesKey = 'facturation.lines.v1';
-  static const _backupLinesKey = 'facturation.lines.backup.v1';
+  BillingLocalStore({AppDatabase? database})
+    : _database = database ?? AppDatabase.defaults();
 
   final AppDatabase _database;
-  final SharedPreferencesAsync _legacyPreferences;
 
   Future<List<BillingLine>?> loadLines() async {
     final dbLines = await _database.loadBillingLines();
@@ -25,12 +14,6 @@ class BillingLocalStore {
       final migrated = _withGeneratedLineIds(dbLines);
       if (!identical(migrated, dbLines)) await saveLines(migrated);
       return migrated;
-    }
-
-    final legacyLines = await _loadLegacyLines();
-    if (legacyLines != null && legacyLines.isNotEmpty) {
-      await saveLines(legacyLines);
-      return legacyLines;
     }
 
     return dbLines;
@@ -100,32 +83,5 @@ class BillingLocalStore {
 
   Future<void> clear() async {
     await _database.clearBillingData();
-    await _legacyPreferences.remove(_linesKey);
-    await _legacyPreferences.remove(_backupLinesKey);
-  }
-
-  Future<List<BillingLine>?> _loadLegacyLines() async {
-    final raw = await _legacyPreferences.getString(_linesKey);
-    final lines = _decodeLines(raw);
-    if (lines != null) return lines;
-
-    final backupRaw = await _legacyPreferences.getString(_backupLinesKey);
-    return _decodeLines(backupRaw);
-  }
-
-  List<BillingLine>? _decodeLines(String? raw) {
-    if (raw == null || raw.trim().isEmpty) return null;
-
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return null;
-
-      return decoded
-          .whereType<Map>()
-          .map((item) => BillingLine.fromJson(Map<String, dynamic>.from(item)))
-          .toList();
-    } on Object {
-      return null;
-    }
   }
 }

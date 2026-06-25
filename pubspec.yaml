@@ -36,7 +36,6 @@ dependencies:
   drift_flutter: ^0.3.0
   excel: ^4.0.6
   file_picker: ^10.3.3
-  shared_preferences: ^2.5.3
   firebase_core: ^4.11.0
   cloud_firestore: ^6.6.0
 

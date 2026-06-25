@@ -19,6 +19,12 @@ void main() {
     );
   });
 
+  test('not configured client has no remote lines to pull', () async {
+    const client = FirebaseNotConfiguredSyncClient();
+
+    expect(await client.fetchBillingLines(), isEmpty);
+  });
+
   test(
     'not configured remote database client refuses to push changes',
     () async {

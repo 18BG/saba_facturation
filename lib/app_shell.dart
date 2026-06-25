@@ -9,9 +9,11 @@ import 'pages/facturation_page.dart';
 import 'pages/import_page.dart';
 import 'pages/settings_page.dart';
 import 'storage/billing_local_store.dart';
+import 'sync/billing_snapshot_changes.dart';
 import 'sync/pending_change.dart';
 import 'sync/persistent_sync_engine.dart';
 import 'sync/remote_sync_client.dart';
+import 'sync/remote_line_merge.dart';
 import 'theme/app_icons.dart';
 import 'widgets/app_icon.dart';
 
@@ -34,16 +36,19 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   BillingLocalStore? _localStore;
   int _selectedIndex = 0;
-  int _selectedYear = 2026;
+  int _selectedYear = DateTime.now().year;
   List<BillingLine> _lines = const [];
   bool _isLoading = true;
   String? _startupWarning;
+  String? _syncInfo;
   int _pendingOutboxCount = 0;
   bool _offline = false;
   bool _isSyncing = false;
+  bool _navigationCollapsed = false;
   late final RemoteSyncClient _remoteSyncClient;
   Timer? _persistTimer;
   Timer? _syncTimer;
+  Timer? _remotePullTimer;
   PersistentSyncEngine? _syncEngine;
 
   @override
@@ -80,6 +85,7 @@ class _AppShellState extends State<AppShell> {
   void dispose() {
     _persistTimer?.cancel();
     _syncTimer?.cancel();
+    _remotePullTimer?.cancel();
     if (_localStore != null && _lines.isNotEmpty) {
       unawaited(_persistLines(List<BillingLine>.of(_lines)));
     }
@@ -87,6 +93,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _loadLines() async {
+    await Future.delayed(const Duration(seconds: 2));
     if (widget.initialLines != null) {
       setState(() {
         _lines = List.of(widget.initialLines!);
@@ -102,7 +109,12 @@ class _AppShellState extends State<AppShell> {
         _lines = savedLines ?? <BillingLine>[];
         _isLoading = false;
       });
-      unawaited(_refreshPendingOutboxCount().then((_) => _queueSyncAttempt()));
+      unawaited(
+        _refreshPendingOutboxCount().then((_) {
+          _queueSyncAttempt();
+          _queueRemotePull();
+        }),
+      );
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
@@ -142,6 +154,7 @@ class _AppShellState extends State<AppShell> {
 
   void _savePendingChanges(List<PendingChange> changes) {
     if (changes.isEmpty || _localStore == null) return;
+    _remotePullTimer?.cancel();
     unawaited(_persistPendingChanges(List<PendingChange>.of(changes)));
   }
 
@@ -167,12 +180,40 @@ class _AppShellState extends State<AppShell> {
       _lines = <BillingLine>[];
       _pendingOutboxCount = 0;
       _isSyncing = false;
+      _syncInfo = null;
+      _startupWarning = null;
     });
+  }
+
+  Future<void> _resetRemoteData() async {
+    if (!_remoteSyncClient.isConfigured) {
+      setState(() {
+        _startupWarning = 'La base distante n est pas configuree.';
+      });
+      return;
+    }
+
+    try {
+      await _remoteSyncClient.clearRemoteData();
+      if (!mounted) return;
+      setState(() {
+        _syncInfo = 'Base distante reinitialisee.';
+      });
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _startupWarning =
+            'La reinitialisation distante a echoue. Detail : $error';
+      });
+    }
   }
 
   void _setOffline(bool value) {
     setState(() => _offline = value);
-    if (!value) _queueSyncAttempt(delay: const Duration(milliseconds: 150));
+    if (!value) {
+      _queueSyncAttempt(delay: const Duration(milliseconds: 150));
+      _queueRemotePull(delay: const Duration(milliseconds: 500));
+    }
   }
 
   void _queueSyncAttempt({Duration delay = const Duration(milliseconds: 900)}) {
@@ -216,6 +257,10 @@ class _AppShellState extends State<AppShell> {
         _queueSyncAttempt(delay: const Duration(milliseconds: 250));
       }
 
+      if (_pendingOutboxCount == 0 && result.failed == 0) {
+        _queueRemotePull(delay: const Duration(milliseconds: 500));
+      }
+
       if (result.failed > 0) {
         final nextLines = [
           for (final line in _lines)
@@ -247,6 +292,63 @@ class _AppShellState extends State<AppShell> {
     await _remoteSyncClient.pushChange(change);
   }
 
+  void _retrySyncNow() {
+    if (_offline || !_remoteSyncClient.isConfigured) return;
+    _syncTimer?.cancel();
+    _remotePullTimer?.cancel();
+    unawaited(_flushSyncOutbox().then((_) => _pullRemoteBillingLinesIfClean()));
+  }
+
+  void _queueRemotePull({Duration delay = const Duration(milliseconds: 1200)}) {
+    if (_localStore == null ||
+        _offline ||
+        !_remoteSyncClient.isConfigured ||
+        _pendingOutboxCount > 0 ||
+        _hasUnsyncedLines) {
+      return;
+    }
+
+    _remotePullTimer?.cancel();
+    _remotePullTimer = Timer(delay, () {
+      unawaited(_pullRemoteBillingLinesIfClean());
+    });
+  }
+
+  Future<void> _pullRemoteBillingLinesIfClean() async {
+    if (_localStore == null ||
+        _offline ||
+        !_remoteSyncClient.isConfigured ||
+        _pendingOutboxCount > 0 ||
+        _hasUnsyncedLines) {
+      return;
+    }
+
+    try {
+      final remoteLines = await _remoteSyncClient.fetchBillingLines();
+      if (!mounted || remoteLines.isEmpty) return;
+      if (_pendingOutboxCount > 0 || _hasUnsyncedLines) return;
+
+      final result = mergeCleanLocalLinesWithRemote(
+        localLines: _lines,
+        remoteLines: remoteLines,
+      );
+      if (!result.changed) return;
+
+      setState(() {
+        _lines = result.lines;
+        _syncInfo =
+            'Base distante lue : ${result.added} ligne(s) ajoutee(s), ${result.updated} mise(s) a jour.';
+      });
+      await _persistLines(result.lines);
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _startupWarning =
+            'La lecture de la base distante a echoue. Les donnees locales restent disponibles. Detail : $error';
+      });
+    }
+  }
+
   Future<void> _refreshPendingOutboxCount() async {
     if (_localStore == null) return;
     try {
@@ -274,8 +376,32 @@ class _AppShellState extends State<AppShell> {
     _persistTimer?.cancel();
     setState(() => _lines = List<BillingLine>.of(nextLines));
     await _persistLines(nextLines);
+    _savePendingChanges(
+      buildBillingLineSnapshotChanges(imported, year: _selectedYear),
+    );
     if (!mounted) return;
     setState(() => _selectedIndex = 0);
+  }
+
+  void _deleteLine(BillingLine line) {
+    final now = DateTime.now();
+    _savePendingChanges([
+      PendingChange(
+        id: '${now.microsecondsSinceEpoch}_deleteLine',
+        lineId: line.id,
+        reference: line.reference.trim(),
+        scope: ChangeScope.line,
+        field: '__deleteLine',
+        value: true,
+        createdAt: now,
+      ),
+    ]);
+  }
+
+  bool get _hasUnsyncedLines {
+    return _lines.any(
+      (line) => line.syncState != SyncState.synced && !line.isIncomplete,
+    );
   }
 
   Widget get _selectedPage {
@@ -288,11 +414,13 @@ class _AppShellState extends State<AppShell> {
         },
         onLinesChanged: _saveLines,
         onPendingChanges: _savePendingChanges,
+        onDeleteLine: _deleteLine,
         pendingOutboxCount: _pendingOutboxCount,
         offline: _offline,
         syncing: _isSyncing,
         remoteSyncConfigured: _remoteSyncClient.isConfigured,
         onOfflineChanged: _setOffline,
+        onRetrySync: _retrySyncNow,
         onOpenImport: () => setState(() => _selectedIndex = 2),
         onOpenExport: () => setState(() => _selectedIndex = 3),
       ),
@@ -303,29 +431,72 @@ class _AppShellState extends State<AppShell> {
         onApplyImport: _applyImportedLines,
       ),
       3 => ExportPage(lines: _lines, selectedYear: _selectedYear),
-      _ => SettingsPage(onResetLocalData: _resetLocalData),
+      _ => SettingsPage(
+        selectedYear: _selectedYear,
+        pendingOutboxCount: _pendingOutboxCount,
+        offline: _offline,
+        syncing: _isSyncing,
+        remoteSyncConfigured: _remoteSyncClient.isConfigured,
+        onYearChanged: (year) => setState(() => _selectedYear = year),
+        onResetLocalData: _resetLocalData,
+        onResetRemoteData: _resetRemoteData,
+      ),
     };
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 12),
+              Text('Chargement des donnees...'),
+            ],
+          ),
+        ),
+      );
     }
+
+    final railExtended =
+        MediaQuery.sizeOf(context).width >= 1180 && !_navigationCollapsed;
 
     return Scaffold(
       body: Row(
         children: [
           NavigationRail(
             selectedIndex: _selectedIndex,
-            extended: MediaQuery.sizeOf(context).width >= 1180,
+            extended: railExtended,
             backgroundColor: Colors.white,
             onDestinationSelected: (index) {
               setState(() => _selectedIndex = index);
             },
-            leading: const Padding(
-              padding: EdgeInsets.only(top: 18, bottom: 18),
-              child: _BrandMark(),
+            leading: Padding(
+              padding: const EdgeInsets.only(top: 18, bottom: 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const _BrandMark(),
+                  const SizedBox(height: 14),
+                  Tooltip(
+                    message: railExtended
+                        ? 'Reduire la navigation'
+                        : 'Etendre la navigation',
+                    child: IconButton(
+                      onPressed: () {
+                        setState(() => _navigationCollapsed = railExtended);
+                      },
+                      icon: AppIcon(
+                        railExtended ? AppIcons.close : AppIcons.table,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
             destinations: [
               NavigationRailDestination(
@@ -379,6 +550,11 @@ class _AppShellState extends State<AppShell> {
           Expanded(
             child: Column(
               children: [
+                if (_syncInfo != null)
+                  _SyncInfoBanner(
+                    message: _syncInfo!,
+                    onDismiss: () => setState(() => _syncInfo = null),
+                  ),
                 if (_startupWarning != null)
                   _StartupWarningBanner(
                     message: _startupWarning!,
@@ -399,6 +575,44 @@ class SyncOfflineException implements Exception {
 
   @override
   String toString() => 'hors ligne';
+}
+
+class _SyncInfoBanner extends StatelessWidget {
+  const _SyncInfoBanner({required this.message, required this.onDismiss});
+
+  final String message;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF0FDF4),
+        border: Border(bottom: BorderSide(color: Color(0xFF22C55E))),
+      ),
+      child: Row(
+        children: [
+          AppIcon(AppIcons.cloudDone, size: 18, color: const Color(0xFF15803D)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Color(0xFF166534), fontSize: 12),
+            ),
+          ),
+          IconButton(
+            onPressed: onDismiss,
+            icon: AppIcon(AppIcons.close, size: 18),
+            tooltip: 'Fermer',
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _StartupWarningBanner extends StatelessWidget {

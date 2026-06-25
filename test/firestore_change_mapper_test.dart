@@ -43,6 +43,59 @@ void main() {
     expect(write.data['reference'], 'REF-FINALE');
   });
 
+  test('maps a line snapshot to the stable line document', () {
+    final write = mapper.map(
+      PendingChange(
+        id: 'snapshot',
+        lineId: 'line-stable',
+        reference: 'REF-001',
+        scope: ChangeScope.line,
+        field: '__lineSnapshot',
+        value: {
+          'reference': 'REF-001',
+          'name': 'Client A',
+          'activity': 'NETTOYAGE',
+          'startDate': '01/01/2026',
+          'endDate': '',
+          'contractNature': 'CDI',
+          'billedStaff': 2,
+          'paidStaff': 1,
+          'status': 'Actif',
+          'statusComment': '',
+          'annualBillings': {},
+          'syncState': 'synced',
+        },
+        createdAt: DateTime(2026, 6, 23),
+      ),
+    );
+
+    expect(write.documentPath, 'facturationLines/line-stable');
+    expect(write.data['lineId'], 'line-stable');
+    expect(write.data['reference'], 'REF-001');
+    expect(write.data['name'], 'Client A');
+    expect(write.data.containsKey('annualBillings'), isFalse);
+    expect(write.data.containsKey('syncState'), isFalse);
+  });
+
+  test('maps a deleted line marker to the stable line document', () {
+    final write = mapper.map(
+      PendingChange(
+        id: 'delete',
+        lineId: 'line-to-delete',
+        reference: 'REF-DEL',
+        scope: ChangeScope.line,
+        field: '__deleteLine',
+        value: true,
+        createdAt: DateTime(2026, 6, 25),
+      ),
+    );
+
+    expect(write.documentPath, 'facturationLines/line-to-delete');
+    expect(write.data['deleted'], isTrue);
+    expect(write.data['lineId'], 'line-to-delete');
+    expect(write.data['reference'], 'REF-DEL');
+  });
+
   test('refuses to map a change without line id', () {
     expect(
       () => mapper.map(
@@ -79,6 +132,32 @@ void main() {
     expect(write.data['lineId'], 'line-002');
     expect(write.data['reference'], 'REF-002');
     expect(write.data['monthlyRate'], 150000);
+  });
+
+  test('maps an annual snapshot to the selected year document', () {
+    final write = mapper.map(
+      PendingChange(
+        id: 'annual-snapshot',
+        lineId: 'line-002',
+        reference: 'REF-002',
+        scope: ChangeScope.annualBilling,
+        field: '__annualSnapshot',
+        value: {
+          'monthlyRate': 150000,
+          'payments': {'Jan': 50000, 'Fev': 100000},
+        },
+        year: 2026,
+        createdAt: DateTime(2026, 6, 23),
+      ),
+    );
+
+    expect(write.documentPath, 'facturationLines/line-002/annees/2026');
+    expect(write.data['annee'], 2026);
+    expect(write.data['lineId'], 'line-002');
+    expect(write.data['reference'], 'REF-002');
+    expect(write.data['monthlyRate'], 150000);
+    expect(write.data['paiements'], containsPair('Jan', 50000));
+    expect(write.data['paiements'], containsPair('Mar', 0));
   });
 
   test('maps a payment cell to a nested payment field', () {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../import/billing_excel_importer.dart';
 import '../models/billing_line.dart';
+import '../models/billing_years.dart';
 import '../theme/app_icons.dart';
 import '../widgets/app_icon.dart';
 
@@ -90,6 +91,11 @@ class _ImportPageState extends State<ImportPage> {
           ),
         ),
       );
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Import impossible : $error')));
     } finally {
       if (mounted) setState(() => _isApplying = false);
     }
@@ -201,10 +207,9 @@ class _Header extends StatelessWidget {
           child: DropdownButton<int>(
             value: year,
             underline: const SizedBox.shrink(),
-            items: const [
-              DropdownMenuItem(value: 2024, child: Text('2024')),
-              DropdownMenuItem(value: 2025, child: Text('2025')),
-              DropdownMenuItem(value: 2026, child: Text('2026')),
+            items: [
+              for (final option in billingYearOptions())
+                DropdownMenuItem(value: option, child: Text('$option')),
             ],
             onChanged: (value) {
               if (value != null) onYearChanged(value);

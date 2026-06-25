@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/billing_line.dart';
 import '../theme/app_icons.dart';
+import '../validation/billing_validation.dart';
 import '../widgets/metric_tile.dart';
 import '../widgets/status_badge.dart';
 
@@ -17,20 +18,21 @@ class DashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final expected = lines.fold<double>(
+    final countedLines = linesCountedInBillingTotals(lines).toList();
+    final expected = countedLines.fold<double>(
       0,
       (sum, line) => sum + line.expectedDueAmount(selectedYear),
     );
-    final paid = lines.fold<double>(
+    final paid = countedLines.fold<double>(
       0,
       (sum, line) => sum + line.paidTotalDue(selectedYear),
     );
-    final balance = lines.fold<double>(
+    final balance = countedLines.fold<double>(
       0,
       (sum, line) => sum + line.balanceDue(selectedYear),
     );
     final activeLines = lines.where((line) => line.status == 'Actif').length;
-    final topBalances = [...lines]
+    final topBalances = [...countedLines]
       ..sort(
         (a, b) =>
             b.balanceDue(selectedYear).compareTo(a.balanceDue(selectedYear)),
@@ -38,6 +40,7 @@ class DashboardPage extends StatelessWidget {
     final monthsDue = lines.isEmpty
         ? 0
         : lines.first.billingMonthsDue(selectedYear);
+    final validation = validateBillingLines(lines, year: selectedYear);
 
     return Padding(
       padding: const EdgeInsets.all(20),
@@ -79,6 +82,17 @@ class DashboardPage extends StatelessWidget {
                 caption: 'toute l’année',
                 color: const Color(0xFFB45309),
               ),
+              MetricTile(
+                label: 'Alertes',
+                value: '${validation.totalCount}',
+                icon: AppIcons.rule,
+                caption: validation.blockingCount > 0
+                    ? '${validation.blockingCount} a corriger'
+                    : 'controle metier',
+                color: validation.totalCount > 0
+                    ? const Color(0xFFB45309)
+                    : const Color(0xFF15803D),
+              ),
             ],
           ),
           const SizedBox(height: 18),
@@ -103,27 +117,32 @@ class DashboardPage extends StatelessWidget {
                           ),
                           const SizedBox(height: 10),
                           Expanded(
-                            child: ListView.separated(
-                              itemCount: topBalances.length,
-                              separatorBuilder: (_, index) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final line = topBalances[index];
-                                return ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(line.name),
-                                  subtitle: Text(
-                                    '${line.reference} - ${line.activity}',
+                            child: topBalances.isEmpty
+                                ? const _DashboardEmptyState(
+                                    message:
+                                        'Aucune ligne disponible pour cette annee.',
+                                  )
+                                : ListView.separated(
+                                    itemCount: topBalances.length,
+                                    separatorBuilder: (_, index) =>
+                                        const Divider(height: 1),
+                                    itemBuilder: (context, index) {
+                                      final line = topBalances[index];
+                                      return ListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        title: Text(line.name),
+                                        subtitle: Text(
+                                          '${line.reference} - ${line.activity}',
+                                        ),
+                                        trailing: Text(
+                                          _money(line.balanceDue(selectedYear)),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
-                                  trailing: Text(
-                                    _money(line.balanceDue(selectedYear)),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
                           ),
                         ],
                       ),
@@ -147,14 +166,25 @@ class DashboardPage extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          for (final activity in activities)
-                            if (lines.any((line) => line.activity == activity))
-                              _ActivityRow(
-                                activity: activity,
-                                count: lines
-                                    .where((line) => line.activity == activity)
-                                    .length,
+                          if (countedLines.isEmpty)
+                            const Expanded(
+                              child: _DashboardEmptyState(
+                                message: 'Aucune activite a afficher.',
                               ),
+                            )
+                          else
+                            for (final activity in activities)
+                              if (countedLines.any(
+                                (line) => line.activity == activity,
+                              ))
+                                _ActivityRow(
+                                  activity: activity,
+                                  count: countedLines
+                                      .where(
+                                        (line) => line.activity == activity,
+                                      )
+                                      .length,
+                                ),
                         ],
                       ),
                     ),
@@ -164,6 +194,23 @@ class DashboardPage extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _DashboardEmptyState extends StatelessWidget {
+  const _DashboardEmptyState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
       ),
     );
   }

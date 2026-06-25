@@ -71,6 +71,93 @@ void main() {
     expect(sheet.rows[2][7]?.value.toString(), '1');
     expect(_numberValue(sheet.rows[2][10]?.value), 2000);
   });
+
+  test('adds an alerts sheet when exported lines need review', () {
+    const exporter = BillingExcelExporter();
+    final bytes = exporter.exportLines(
+      [
+        BillingLine(
+          reference: '',
+          name: '',
+          activity: 'GARDIENNAGE',
+          startDate: '',
+          endDate: '',
+          contractNature: '',
+          billedStaff: 0,
+          paidStaff: 0,
+          annualBillings: {2026: AnnualBillingData.empty()},
+          status: 'Autre',
+          statusComment: '',
+          syncState: SyncState.synced,
+        ),
+      ],
+      options: const BillingExcelExportOptions(
+        year: 2026,
+        onlyActive: false,
+        includeBalanceColumns: true,
+      ),
+    );
+
+    final workbook = Excel.decodeBytes(bytes);
+    final alerts = workbook.tables['Alertes'];
+
+    expect(alerts, isNotNull);
+    expect(alerts!.rows.first[3]?.value.toString(), 'Alerte');
+    expect(
+      alerts.rows.skip(1).map((row) => row[3]?.value.toString()).toList(),
+      contains('Reference comptable manquante.'),
+    );
+  });
+
+  test('does not count disabled lines in exported totals', () {
+    const exporter = BillingExcelExporter();
+    BillingLine line({
+      required String reference,
+      required String status,
+      required double paid,
+    }) {
+      return BillingLine(
+        reference: reference,
+        name: 'Client $reference',
+        activity: 'GARDIENNAGE',
+        startDate: '',
+        endDate: '',
+        contractNature: '',
+        billedStaff: 1,
+        paidStaff: 1,
+        annualBillings: {
+          2026: AnnualBillingData(
+            monthlyRate: 1000,
+            payments: {
+              for (final month in months) month: month == 'Jan' ? paid : 0,
+            },
+          ),
+        },
+        status: status,
+        statusComment: '',
+        syncState: SyncState.synced,
+      );
+    }
+
+    final bytes = exporter.exportLines(
+      [
+        line(reference: 'REF-001', status: 'Actif', paid: 1000),
+        line(reference: 'REF-002', status: 'Desactive', paid: 5000),
+      ],
+      options: const BillingExcelExportOptions(
+        year: 2026,
+        onlyActive: false,
+        includeBalanceColumns: true,
+      ),
+    );
+
+    final workbook = Excel.decodeBytes(bytes);
+    final sheet = workbook.tables['Facturation 2026']!;
+
+    expect(sheet.rows.length, 4);
+    expect(sheet.rows[3][0]?.value.toString(), 'TOTAUX');
+    expect(_numberValue(sheet.rows[3][10]?.value), 1000);
+  });
 }
 
 num _numberValue(Object? value) {

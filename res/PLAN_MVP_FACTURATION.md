@@ -1172,7 +1172,7 @@ Hors MVP :
 
 ## 12. Etat d'avancement du prototype Flutter
 
-Date de mise a jour : 22 juin 2026.
+Date de mise a jour : 23 juin 2026.
 
 Cette section suit ce qui a deja ete construit dans le projet Flutter `facturation_app`, ce qui est en cours, et ce qui reste a faire pour arriver a un MVP utilisable en conditions reelles.
 
@@ -1215,6 +1215,17 @@ Cette section suit ce qui a deja ete construit dans le projet Flutter `facturati
 - Reference obligatoire signalee visuellement, sans bloquer la saisie rapide.
 - Detection des references en doublon dans la grille.
 - Detection des lignes incompletes.
+- Resume global des alertes metier ajoute au-dessus de la grille :
+  - references manquantes,
+  - references en doublon,
+  - noms/sites manquants,
+  - statuts `Autre` sans commentaire,
+  - effectifs factures a 0,
+  - tarifs mensuels a 0.
+- Le filtre `A revoir` regroupe les lignes qui demandent une verification metier.
+- Le panneau lateral affiche les alertes de la ligne selectionnee.
+- Le commentaire de statut est editable dans le panneau lateral.
+- Les annees proposees dans Facturation, Import, Export et Parametres sont maintenant dynamiques autour de l'annee courante.
 
 #### Page Facturation
 
@@ -1244,6 +1255,7 @@ Cette section suit ce qui a deja ete construit dans le projet Flutter `facturati
 - Recherche globale ajoutee.
 - Ajout de ligne depuis la grille.
 - Panneau lateral de detail de ligne.
+- Etat vide ajoute dans la grille quand aucune ligne ne correspond aux filtres.
 - Resume compact en haut de grille :
   - Lignes
   - Eff facture
@@ -1280,6 +1292,7 @@ Montant attendu mensuel x 12
 
 - Page Dashboard creee.
 - Cartes KPI globales pour l'annee selectionnee.
+- Tuile `Alertes` ajoutee pour remonter l'etat de qualite metier des donnees.
 - Distinction clarifiee entre :
   - Facturation : indicateurs de la vue filtree.
   - Dashboard : indicateurs globaux de l'annee.
@@ -1295,8 +1308,8 @@ Montant attendu mensuel x 12
   - migrations,
   - requetes locales propres,
   - meilleure base pour une outbox de synchronisation Firebase.
-- `shared_preferences` est remplace comme stockage principal.
-- Les anciennes donnees `shared_preferences` peuvent etre migrees au premier chargement.
+- `shared_preferences` est retire du projet pour eviter une double persistance locale.
+- Drift/SQLite est l'unique stockage local applicatif du MVP.
 - Les lignes restent disponibles apres fermeture/reouverture de l'application.
 - Schema SQLite ajoute :
   - lignes de facturation,
@@ -1342,6 +1355,22 @@ Montant attendu mensuel x 12
 - Firestore utilise maintenant `facturationLines/{lineId}` au lieu de `facturationLines/{reference}`.
 - La reference comptable redevient un champ metier editable et synchronisable sans creer de nouveau document Firestore.
 - Les anciennes entrees d'outbox `reference` seules, creees avant cette correction, sont consommees sans push distant pour ne pas recreer les documents partiels.
+- Les modifications importantes peuvent maintenant envoyer un snapshot coherent de la ligne et de l'annee vers Firestore, afin qu'une nouvelle machine ne reconstruise pas une ligne a partir de documents partiels.
+- L'import Excel amorce aussi une synchronisation distante en ajoutant des snapshots de lignes/annees dans l'outbox, sans bloquer l'interface.
+- Un premier pull Firestore prudent est ajoute :
+  - au demarrage ou au retour en ligne,
+  - uniquement si l'outbox locale est vide,
+  - uniquement si aucune ligne locale n'est en etat modifie/synchronisation/erreur,
+  - avec une fusion propre entre local et distant.
+- La fusion de pull suit la regle MVP suivante :
+  - une ligne distante avec le meme `lineId` remplace la ligne locale seulement quand la base locale est propre,
+  - une ligne distante inconnue localement est ajoutee,
+  - une ligne locale absente de Firestore est conservee, car la suppression n'est pas dans le MVP.
+- Ce pull sert a initialiser une nouvelle installation Windows/web et a mettre a jour une installation locale propre.
+- Une banniere verte discrete informe l'utilisateur quand des lignes ont ete ajoutees ou mises a jour depuis la base distante.
+- La strategie MVP evite volontairement de remplacer une cellule locale par une valeur distante tant qu'il n'y a pas de vraie resolution de conflit cellule par cellule.
+- Les ecritures Firestore ajoutent un marqueur `updatedAtServer` via `FieldValue.serverTimestamp()`, utile pour une fusion plus fine plus tard.
+- Un bouton `Reessayer` apparait dans la barre de sync quand des modifications attendent une nouvelle tentative.
 - Si Firestore refuse l'ecriture, par exemple a cause des regles de securite, l'outbox conserve le changement en erreur.
 - Si Firestore refuse l'ecriture, la ligne passe visuellement en erreur de synchronisation au lieu de rester bloquee en synchronisation.
 - L'interface affiche `Base distante non configuree` quand des modifications locales attendent une sync distante.
@@ -1425,7 +1454,19 @@ Montant attendu mensuel x 12
 - Option pour inclure ou non les colonnes de reliquat.
 - Sauvegarde du fichier via dialogue systeme Windows.
 - Support web prepare via le meme flux `file_picker`.
+- L'export est bloque proprement si les options choisies ne produisent aucune ligne.
+- Une feuille `Alertes` est ajoutee a l'export quand des lignes demandent une verification metier.
 - Test unitaire ajoute pour decoder le fichier exporte et verifier les totaux.
+
+#### Parametres
+
+- La page Parametres affiche les activites et statuts du MVP.
+- L'annee active peut etre changee depuis Parametres.
+- La page Parametres affiche un resume de synchronisation :
+  - base distante configuree ou non,
+  - mode en ligne/hors ligne,
+  - etat a jour, en attente ou en synchronisation.
+- Le reset local debug reste visible uniquement en mode debug.
 
 ### 12.2 En cours ou a valider maintenant
 
@@ -1496,6 +1537,10 @@ flutter test
 
 Ces elements restent importants, mais ils ne sont pas prioritaires tant que le coeur metier n'est pas stabilise.
 
+- Fait MVP :
+  - colonne Actions visible pour ouvrir le panneau detail sans cliquer dans un vide ;
+  - suppression d'une ligne depuis la page Facturation avec confirmation ;
+  - navigation laterale pliable pour recuperer de la largeur sur desktop.
 - Ameliorer la navigation clavier :
   - Enter,
   - Tab,
@@ -1514,10 +1559,19 @@ Ces elements restent importants, mais ils ne sont pas prioritaires tant que le c
 
 #### Sauvegarde locale et sync
 
-- Tester la migration depuis les anciennes donnees `shared_preferences`.
-- Integrer Firebase/Firestore.
-- Connecter le moteur de sync persistant au push Firestore reel.
-- Implementer la synchronisation reelle en arriere-plan.
+- Fait MVP :
+  - stockage local Drift/SQLite ;
+  - outbox persistante ;
+  - push Firestore par identifiant technique `lineId` ;
+  - pull Firestore prudent quand la base locale est propre ;
+  - suppression locale-first avec marqueur distant `deleted: true` ;
+  - reset local debug ;
+  - reset distant debug.
+- Ne pas maintenir de migration `shared_preferences` pour le MVP : les donnees de test peuvent etre reimportees ou resynchronisees.
+- Valider le push Firestore reel sur Windows et web avec le projet Firebase configure.
+- Valider le pull Firestore sur une installation locale vide.
+- Valider le pull Firestore sur une installation locale propre contenant deja certaines lignes.
+- Ajouter une vraie strategie de resolution si la meme ligne est modifiee localement et dans Firestore avant synchronisation.
 - Ajouter detection reseau reelle.
 - Ajouter reprise automatique quand la connexion revient.
 - Ajouter un indicateur detaille pour les changements en erreur.
@@ -1526,15 +1580,11 @@ Ces elements restent importants, mais ils ne sont pas prioritaires tant que le c
 
 #### Validation metier
 
-- Rendre la reference obligatoire avant validation finale, sans bloquer le brouillon.
-- Ajouter une validation claire des doublons de reference.
-- Ajouter obligation de commentaire si statut `Autre`.
-- Clarifier l'effet du statut `Desactive` sur les calculs si le client le demande.
-- Ajouter des alertes non bloquantes pour :
-  - effectif facture a 0,
-  - montant mensuel a 0,
-  - activite manquante ou inconnue,
-  - reference manquante.
+- Fait MVP :
+  - `Desactive` ne compte pas dans les totaux, effectifs, payes et reliquats ;
+  - `Eff facture = 0` et `Tarif = 0` restent des alertes non bloquantes.
+- Ne pas ajouter de mode de validation finale pour le MVP : le brouillon et les alertes suffisent pour le moment.
+- Ajouter des regles supplementaires si les utilisateurs confirment qu'elles sont bloquantes.
 
 #### Dashboard
 
@@ -1545,10 +1595,14 @@ Ces elements restent importants, mais ils ne sont pas prioritaires tant que le c
 
 #### Parametres
 
+- Fait MVP :
+  - affichage de l'etat local/distant ;
+  - reset local debug ;
+  - reset distant debug ;
+  - rappel que la base locale est stockee dans les donnees applicatives Windows, pas dans le dossier du projet.
 - Ajouter gestion editable des activites si le client veut pouvoir les modifier.
-- Ajouter annee par defaut.
 - Ajouter options d'import/export.
-- Garder le reset local uniquement en debug tant que le produit n'a pas de vraie gestion admin.
+- Garder les resets local et distant uniquement en debug tant que le produit n'a pas de vraie gestion admin.
 
 #### Authentification et droits
 
@@ -1580,15 +1634,19 @@ Ces elements restent importants, mais ils ne sont pas prioritaires tant que le c
 
 Ordre recommande :
 
-1. Valider la brique outbox persistante avec `flutter analyze` et `flutter test`.
-2. Verifier que Firestore Database est cree dans la console Firebase.
-3. Configurer les regles Firestore de developpement ou brancher Firebase Auth.
-4. Tester une vraie ecriture depuis Windows.
-5. Ajouter detection reseau reelle et reprise automatique.
-6. Ajouter les validations metier essentielles sans bloquer le brouillon.
-7. Ajouter authentification et droits.
-8. Ameliorer la navigation clavier, le copier/coller et la grille avancee.
-9. Faire une passe UI/UX finale avec test utilisateur.
+1. Lancer `flutter analyze` et `flutter test` apres les derniers changements.
+2. Tester en reel sur Windows :
+   - creation ligne,
+   - edition rapide,
+   - statut `Desactive`,
+   - suppression ligne,
+   - redemarrage app,
+   - sync Firestore.
+3. Verifier dans Firestore que les suppressions posent `deleted: true` et que le reset distant debug vide bien `facturationLines`.
+4. Ajouter detection reseau reelle et reprise automatique.
+5. Ajouter authentification et droits Firebase.
+6. Ameliorer la navigation clavier, le copier/coller et la grille avancee.
+7. Faire une passe UI/UX finale avec test utilisateur RH.
 
 ## 13. Evolutions futures
 
