@@ -460,23 +460,34 @@ class _FacturationPageState extends State<FacturationPage> {
                     ],
                   ),
                 ),
-                if (_selectedLine != null) ...[
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: 330,
-                    child: _LineDetailPanel(
-                      line: _selectedLine!,
-                      selectedYear: _year,
-                      duplicateReference: _duplicateReferences.contains(
-                        _selectedLine!.reference.trim().toUpperCase(),
-                      ),
-                      onUpdate: (updated) =>
-                          _updateLine(_selectedLine!, updated),
-                      onDelete: () => _deleteLine(_selectedLine!),
-                      onClose: () => setState(() => _selectedLine = null),
-                    ),
-                  ),
-                ],
+                _AnimatedDetailPanel(
+                  child: _selectedLine == null
+                      ? null
+                      : Row(
+                          key: ValueKey(_selectedLine!.id),
+                          children: [
+                            const SizedBox(width: 12),
+                            SizedBox(
+                              width: 330,
+                              child: _LineDetailPanel(
+                                line: _selectedLine!,
+                                selectedYear: _year,
+                                duplicateReference: _duplicateReferences
+                                    .contains(
+                                      _selectedLine!.reference
+                                          .trim()
+                                          .toUpperCase(),
+                                    ),
+                                onUpdate: (updated) =>
+                                    _updateLine(_selectedLine!, updated),
+                                onDelete: () => _deleteLine(_selectedLine!),
+                                onClose: () =>
+                                    setState(() => _selectedLine = null),
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
               ],
             ),
           ),
@@ -1129,7 +1140,7 @@ class _HeaderCell extends StatelessWidget {
   }
 }
 
-class _GridRow extends StatelessWidget {
+class _GridRow extends StatefulWidget {
   const _GridRow({
     required this.line,
     required this.selectedYear,
@@ -1149,169 +1160,191 @@ class _GridRow extends StatelessWidget {
   final ValueChanged<BillingLine> onUpdate;
 
   @override
+  State<_GridRow> createState() => _GridRowState();
+}
+
+class _GridRowState extends State<_GridRow> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
+    final line = widget.line;
+    final selected = widget.selected;
+    final selectedYear = widget.selectedYear;
+    final hasDuplicateReference = widget.hasDuplicateReference;
+    final onSelect = widget.onSelect;
+    final onDelete = widget.onDelete;
+    final onUpdate = widget.onUpdate;
     final annual = line.annualBilling(selectedYear);
     final background = selected
         ? const Color(0xFFEFF6FF)
+        : _hovered
+        ? const Color(0xFFF3F6FB)
         : line.isIncomplete
         ? const Color(0xFFFFFBEB)
         : Colors.white;
 
-    return Container(
-      color: background,
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          SizedBox(
-            width: _BillingGrid.widths[0],
-            child: Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Tooltip(
-                    message: 'Ouvrir le detail',
-                    child: IconButton(
-                      onPressed: onSelect,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 32,
-                        height: 32,
-                      ),
-                      icon: AppIcon(
-                        AppIcons.fileOpen,
-                        size: 18,
-                        color: selected
-                            ? Theme.of(context).colorScheme.primary
-                            : const Color(0xFF64748B),
-                      ),
-                    ),
-                  ),
-                  Tooltip(
-                    message: 'Supprimer la ligne',
-                    child: IconButton(
-                      onPressed: onDelete,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 32,
-                        height: 32,
-                      ),
-                      icon: AppIcon(
-                        AppIcons.warning,
-                        size: 17,
-                        color: const Color(0xFFB91C1C),
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOut,
+        color: background,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            SizedBox(
+              width: _BillingGrid.widths[0],
+              child: Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Tooltip(
+                      message: 'Ouvrir le detail',
+                      child: IconButton(
+                        onPressed: onSelect,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 32,
+                          height: 32,
+                        ),
+                        icon: AppIcon(
+                          AppIcons.fileOpen,
+                          size: 18,
+                          color: selected
+                              ? Theme.of(context).colorScheme.primary
+                              : const Color(0xFF64748B),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                    Tooltip(
+                      message: 'Supprimer la ligne',
+                      child: IconButton(
+                        onPressed: onDelete,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 32,
+                          height: 32,
+                        ),
+                        icon: AppIcon(
+                          AppIcons.warning,
+                          size: 17,
+                          color: const Color(0xFFB91C1C),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          EditableCell(
-            value: line.reference,
-            width: _BillingGrid.widths[1],
-            isRequired: true,
-            hasError: hasDuplicateReference,
-            errorMessage: hasDuplicateReference
-                ? 'Reference deja utilisee'
-                : null,
-            onChanged: (value) => onUpdate(line.copyWith(reference: value)),
-          ),
-          EditableCell(
-            value: line.name,
-            width: _BillingGrid.widths[2],
-            isRequired: true,
-            onChanged: (value) => onUpdate(line.copyWith(name: value)),
-          ),
-          _DropdownCell(
-            value: line.activity,
-            values: activities,
-            width: _BillingGrid.widths[3],
-            onChanged: (value) => onUpdate(line.copyWith(activity: value)),
-          ),
-          EditableCell(
-            value: line.startDate,
-            width: _BillingGrid.widths[4],
-            onChanged: (value) => onUpdate(line.copyWith(startDate: value)),
-          ),
-          EditableCell(
-            value: line.endDate,
-            width: _BillingGrid.widths[5],
-            onChanged: (value) => onUpdate(line.copyWith(endDate: value)),
-          ),
-          EditableCell(
-            value: line.contractNature,
-            width: _BillingGrid.widths[6],
-            onChanged: (value) =>
-                onUpdate(line.copyWith(contractNature: value)),
-          ),
-          EditableCell(
-            value: '${line.billedStaff}',
-            width: _BillingGrid.widths[7],
-            textAlign: TextAlign.right,
-            onChanged: (value) =>
-                onUpdate(line.copyWith(billedStaff: _parseInt(value))),
-          ),
-          EditableCell(
-            value: '${line.paidStaff}',
-            width: _BillingGrid.widths[8],
-            textAlign: TextAlign.right,
-            onChanged: (value) =>
-                onUpdate(line.copyWith(paidStaff: _parseInt(value))),
-          ),
-          EditableCell(
-            value: _number(annual.monthlyRate),
-            width: _BillingGrid.widths[9],
-            textAlign: TextAlign.right,
-            onChanged: (value) {
-              onUpdate(
-                line.withAnnualBilling(
-                  selectedYear,
-                  annual.copyWith(monthlyRate: _parseMoney(value)),
-                ),
-              );
-            },
-          ),
-          for (var i = 0; i < months.length; i++)
             EditableCell(
-              value: _number(annual.payments[months[i]] ?? 0),
-              width: _BillingGrid.widths[10 + i],
+              value: line.reference,
+              width: _BillingGrid.widths[1],
+              isRequired: true,
+              hasError: hasDuplicateReference,
+              errorMessage: hasDuplicateReference
+                  ? 'Reference deja utilisee'
+                  : null,
+              onChanged: (value) => onUpdate(line.copyWith(reference: value)),
+            ),
+            EditableCell(
+              value: line.name,
+              width: _BillingGrid.widths[2],
+              isRequired: true,
+              onChanged: (value) => onUpdate(line.copyWith(name: value)),
+            ),
+            _DropdownCell(
+              value: line.activity,
+              values: activities,
+              width: _BillingGrid.widths[3],
+              onChanged: (value) => onUpdate(line.copyWith(activity: value)),
+            ),
+            EditableCell(
+              value: line.startDate,
+              width: _BillingGrid.widths[4],
+              onChanged: (value) => onUpdate(line.copyWith(startDate: value)),
+            ),
+            EditableCell(
+              value: line.endDate,
+              width: _BillingGrid.widths[5],
+              onChanged: (value) => onUpdate(line.copyWith(endDate: value)),
+            ),
+            EditableCell(
+              value: line.contractNature,
+              width: _BillingGrid.widths[6],
+              onChanged: (value) =>
+                  onUpdate(line.copyWith(contractNature: value)),
+            ),
+            EditableCell(
+              value: '${line.billedStaff}',
+              width: _BillingGrid.widths[7],
+              textAlign: TextAlign.right,
+              onChanged: (value) =>
+                  onUpdate(line.copyWith(billedStaff: _parseInt(value))),
+            ),
+            EditableCell(
+              value: '${line.paidStaff}',
+              width: _BillingGrid.widths[8],
+              textAlign: TextAlign.right,
+              onChanged: (value) =>
+                  onUpdate(line.copyWith(paidStaff: _parseInt(value))),
+            ),
+            EditableCell(
+              value: _number(annual.monthlyRate),
+              width: _BillingGrid.widths[9],
               textAlign: TextAlign.right,
               onChanged: (value) {
-                final next = Map<String, double>.of(annual.payments);
-                next[months[i]] = _parseMoney(value);
                 onUpdate(
                   line.withAnnualBilling(
                     selectedYear,
-                    annual.copyWith(payments: next),
+                    annual.copyWith(monthlyRate: _parseMoney(value)),
                   ),
                 );
               },
             ),
-          EditableCell(
-            value: _money(line.paidTotalDue(selectedYear)),
-            width: _BillingGrid.widths[22],
-            textAlign: TextAlign.right,
-            readOnly: true,
-            onChanged: (_) {},
-          ),
-          EditableCell(
-            value: _money(line.balanceDue(selectedYear)),
-            width: _BillingGrid.widths[23],
-            textAlign: TextAlign.right,
-            readOnly: true,
-            onChanged: (_) {},
-          ),
-          _DropdownCell(
-            value: line.status,
-            values: statuses,
-            width: _BillingGrid.widths[24],
-            onChanged: (value) => onUpdate(line.copyWith(status: value)),
-          ),
-          SizedBox(
-            width: _BillingGrid.widths[25],
-            child: Center(child: SyncBadge(state: line.syncState)),
-          ),
-        ],
+            for (var i = 0; i < months.length; i++)
+              EditableCell(
+                value: _number(annual.payments[months[i]] ?? 0),
+                width: _BillingGrid.widths[10 + i],
+                textAlign: TextAlign.right,
+                onChanged: (value) {
+                  final next = Map<String, double>.of(annual.payments);
+                  next[months[i]] = _parseMoney(value);
+                  onUpdate(
+                    line.withAnnualBilling(
+                      selectedYear,
+                      annual.copyWith(payments: next),
+                    ),
+                  );
+                },
+              ),
+            EditableCell(
+              value: _money(line.paidTotalDue(selectedYear)),
+              width: _BillingGrid.widths[22],
+              textAlign: TextAlign.right,
+              readOnly: true,
+              onChanged: (_) {},
+            ),
+            EditableCell(
+              value: _money(line.balanceDue(selectedYear)),
+              width: _BillingGrid.widths[23],
+              textAlign: TextAlign.right,
+              readOnly: true,
+              onChanged: (_) {},
+            ),
+            _DropdownCell(
+              value: line.status,
+              values: statuses,
+              width: _BillingGrid.widths[24],
+              onChanged: (value) => onUpdate(line.copyWith(status: value)),
+            ),
+            SizedBox(
+              width: _BillingGrid.widths[25],
+              child: Center(child: SyncBadge(state: line.syncState)),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1354,6 +1387,39 @@ class _DropdownCell extends StatelessWidget {
           },
         ),
       ),
+    );
+  }
+}
+
+class _AnimatedDetailPanel extends StatelessWidget {
+  const _AnimatedDetailPanel({required this.child});
+
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 260),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: SizeTransition(
+            axis: Axis.horizontal,
+            alignment: Alignment.centerLeft,
+            sizeFactor: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.06, 0),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: child ?? const SizedBox.shrink(),
     );
   }
 }

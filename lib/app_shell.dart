@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'models/billing_line.dart';
@@ -16,6 +17,7 @@ import 'sync/remote_sync_client.dart';
 import 'sync/remote_line_merge.dart';
 import 'theme/app_icons.dart';
 import 'widgets/app_icon.dart';
+import 'widgets/facturation_skeleton.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({
@@ -93,7 +95,6 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _loadLines() async {
-    await Future.delayed(const Duration(seconds: 2));
     if (widget.initialLines != null) {
       setState(() {
         _lines = List.of(widget.initialLines!);
@@ -404,26 +405,41 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  bool get _settingsAvailable => kDebugMode;
+
+  int get _safeSelectedIndex {
+    if (_settingsAvailable) return _selectedIndex;
+    return _selectedIndex > 3 ? 0 : _selectedIndex;
+  }
+
+  FacturationPage _buildFacturationPage() {
+    return FacturationPage(
+      lines: _lines,
+      selectedYear: _selectedYear,
+      onYearChanged: (year) {
+        setState(() => _selectedYear = year);
+      },
+      onLinesChanged: _saveLines,
+      onPendingChanges: _savePendingChanges,
+      onDeleteLine: _deleteLine,
+      pendingOutboxCount: _pendingOutboxCount,
+      offline: _offline,
+      syncing: _isSyncing,
+      remoteSyncConfigured: _remoteSyncClient.isConfigured,
+      onOfflineChanged: _setOffline,
+      onRetrySync: _retrySyncNow,
+      onOpenImport: () => setState(() => _selectedIndex = 2),
+      onOpenExport: () => setState(() => _selectedIndex = 3),
+    );
+  }
+
   Widget get _selectedPage {
-    return switch (_selectedIndex) {
-      0 => FacturationPage(
-        lines: _lines,
-        selectedYear: _selectedYear,
-        onYearChanged: (year) {
-          setState(() => _selectedYear = year);
-        },
-        onLinesChanged: _saveLines,
-        onPendingChanges: _savePendingChanges,
-        onDeleteLine: _deleteLine,
-        pendingOutboxCount: _pendingOutboxCount,
-        offline: _offline,
-        syncing: _isSyncing,
-        remoteSyncConfigured: _remoteSyncClient.isConfigured,
-        onOfflineChanged: _setOffline,
-        onRetrySync: _retrySyncNow,
-        onOpenImport: () => setState(() => _selectedIndex = 2),
-        onOpenExport: () => setState(() => _selectedIndex = 3),
-      ),
+    if (_isLoading) {
+      return const FacturationSkeleton(key: ValueKey('loading-skeleton'));
+    }
+    final selectedIndex = _safeSelectedIndex;
+    final page = switch (selectedIndex) {
+      0 => _buildFacturationPage(),
       1 => DashboardPage(lines: _lines, selectedYear: _selectedYear),
       2 => ImportPage(
         selectedYear: _selectedYear,
@@ -431,7 +447,7 @@ class _AppShellState extends State<AppShell> {
         onApplyImport: _applyImportedLines,
       ),
       3 => ExportPage(lines: _lines, selectedYear: _selectedYear),
-      _ => SettingsPage(
+      4 when _settingsAvailable => SettingsPage(
         selectedYear: _selectedYear,
         pendingOutboxCount: _pendingOutboxCount,
         offline: _offline,
@@ -441,37 +457,26 @@ class _AppShellState extends State<AppShell> {
         onResetLocalData: _resetLocalData,
         onResetRemoteData: _resetRemoteData,
       ),
+      _ => _buildFacturationPage(),
     };
+    return KeyedSubtree(key: ValueKey(selectedIndex), child: page);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 12),
-              Text('Chargement des donnees...'),
-            ],
-          ),
-        ),
-      );
-    }
-
     final railExtended =
         MediaQuery.sizeOf(context).width >= 1180 && !_navigationCollapsed;
+    final selectedIndex = _safeSelectedIndex;
 
     return Scaffold(
       body: Row(
         children: [
           NavigationRail(
-            selectedIndex: _selectedIndex,
+            selectedIndex: selectedIndex,
             extended: railExtended,
             backgroundColor: Colors.white,
             onDestinationSelected: (index) {
+              if (_isLoading) return;
               setState(() => _selectedIndex = index);
             },
             leading: Padding(
@@ -535,15 +540,16 @@ class _AppShellState extends State<AppShell> {
                 ),
                 label: const Text('Export'),
               ),
-              NavigationRailDestination(
-                icon: AppIcon(AppIcons.settings),
-                selectedIcon: AppIcon(
-                  AppIcons.settings,
-                  color: Theme.of(context).colorScheme.primary,
-                  strokeWidth: 2.2,
+              if (_settingsAvailable)
+                NavigationRailDestination(
+                  icon: AppIcon(AppIcons.settings),
+                  selectedIcon: AppIcon(
+                    AppIcons.settings,
+                    color: Theme.of(context).colorScheme.primary,
+                    strokeWidth: 2.2,
+                  ),
+                  label: const Text('Parametres'),
                 ),
-                label: const Text('Parametres'),
-              ),
             ],
           ),
           const VerticalDivider(width: 1),
@@ -560,7 +566,28 @@ class _AppShellState extends State<AppShell> {
                     message: _startupWarning!,
                     onDismiss: () => setState(() => _startupWarning = null),
                   ),
-                Expanded(child: _selectedPage),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) {
+                      final offset = Tween<Offset>(
+                        begin: const Offset(0, 0.012),
+                        end: Offset.zero,
+                      ).animate(animation);
+                      return FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(position: offset, child: child),
+                      );
+                    },
+                    layoutBuilder: (currentChild, previousChildren) => Stack(
+                      alignment: Alignment.topLeft,
+                      children: [...previousChildren, ?currentChild],
+                    ),
+                    child: _selectedPage,
+                  ),
+                ),
               ],
             ),
           ),
