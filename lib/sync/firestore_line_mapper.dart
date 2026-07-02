@@ -45,6 +45,7 @@ class FirestoreLineMapper {
       status: _status(lineData['status']),
       statusComment: _string(lineData['statusComment']),
       syncState: SyncState.synced,
+      cellComments: _comments(lineData['cellComments']),
     );
   }
 
@@ -67,6 +68,15 @@ class FirestoreLineMapper {
   Map<String, double> _payments(Object? value) {
     final raw = value is Map ? value : const <Object?, Object?>{};
     return {for (final month in months) month: _double(raw[month])};
+  }
+
+  Map<String, String> _comments(Object? value) {
+    final raw = value is Map ? value : const <Object?, Object?>{};
+    return {
+      for (final entry in raw.entries)
+        if (entry.key != null && entry.value != null)
+          '${entry.key}': '${entry.value}',
+    }..removeWhere((key, value) => key.trim().isEmpty || value.trim().isEmpty);
   }
 
   String _string(Object? value) => value is String ? value : '';

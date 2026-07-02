@@ -116,7 +116,12 @@ class BillingLine {
     required this.status,
     required this.statusComment,
     required this.syncState,
-  }) : id = id == null || id.trim().isEmpty ? newBillingLineId() : id;
+    Map<String, String>? cellComments,
+  }) : id = id == null || id.trim().isEmpty ? newBillingLineId() : id,
+       cellComments = Map.unmodifiable(
+         Map<String, String>.of(cellComments ?? const <String, String>{})
+           ..removeWhere((key, value) => value.trim().isEmpty),
+       );
 
   factory BillingLine.fromJson(Map<String, dynamic> json) {
     final rawAnnualBillings =
@@ -140,6 +145,7 @@ class BillingLine {
       status: json['status'] as String? ?? 'Actif',
       statusComment: json['statusComment'] as String? ?? '',
       syncState: _syncStateFromName(json['syncState'] as String?),
+      cellComments: _commentsFromJson(json['cellComments']),
     );
   }
 
@@ -156,6 +162,7 @@ class BillingLine {
   final String status;
   final String statusComment;
   final SyncState syncState;
+  final Map<String, String> cellComments;
 
   AnnualBillingData annualBilling(int year) {
     return annualBillings[year] ?? AnnualBillingData.empty();
@@ -222,6 +229,7 @@ class BillingLine {
     String? status,
     String? statusComment,
     SyncState? syncState,
+    Map<String, String>? cellComments,
   }) {
     return BillingLine(
       id: id ?? this.id,
@@ -237,6 +245,7 @@ class BillingLine {
       status: status ?? this.status,
       statusComment: statusComment ?? this.statusComment,
       syncState: syncState ?? this.syncState,
+      cellComments: cellComments ?? this.cellComments,
     );
   }
 
@@ -258,8 +267,18 @@ class BillingLine {
       'status': status,
       'statusComment': statusComment,
       'syncState': syncState.name,
+      'cellComments': cellComments,
     };
   }
+}
+
+Map<String, String> _commentsFromJson(Object? value) {
+  final raw = value is Map ? value : const <Object?, Object?>{};
+  return {
+    for (final entry in raw.entries)
+      if (entry.key != null && entry.value != null)
+        '${entry.key}': '${entry.value}',
+  }..removeWhere((key, value) => key.trim().isEmpty || value.trim().isEmpty);
 }
 
 Iterable<BillingLine> linesCountedInBillingTotals(Iterable<BillingLine> lines) {

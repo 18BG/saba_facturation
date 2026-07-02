@@ -5,6 +5,7 @@ import '../models/billing_years.dart';
 import '../sync/pending_change.dart';
 import '../theme/app_icons.dart';
 import '../validation/billing_validation.dart';
+import '../widgets/app_dialog.dart';
 import '../widgets/app_icon.dart';
 import '../widgets/editable_cell.dart';
 import '../widgets/metric_tile.dart';
@@ -54,7 +55,6 @@ class _FacturationPageState extends State<FacturationPage> {
   String _query = '';
   String _activityFilter = 'Toutes';
   String _statusFilter = 'Actif';
-  bool _onlyWithBalance = false;
   bool _onlyIncomplete = false;
   bool _remoteNoticeShown = false;
   late int _year;
@@ -89,21 +89,13 @@ class _FacturationPageState extends State<FacturationPage> {
     _remoteNoticeShown = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Base distante non configuree'),
-          content: const Text(
+      showInfoDialog(
+        context,
+        title: 'Base distante non configuree',
+        message:
             'Les modifications sont sauvegardees sur cet ordinateur. '
             'Elles resteront en attente tant que la base distante ne sera pas configuree.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Compris'),
-            ),
-          ],
-        ),
+        icon: AppIcons.cloudOff,
       );
     });
   }
@@ -121,7 +113,6 @@ class _FacturationPageState extends State<FacturationPage> {
           _activityFilter == 'Toutes' || line.activity == _activityFilter;
       final matchesStatus =
           _statusFilter == 'Tous' || line.status == _statusFilter;
-      final matchesBalance = !_onlyWithBalance || line.balanceDue(_year) > 0;
       final hasIssue =
           duplicateReferences.contains(line.reference.trim().toUpperCase()) ||
           billingLineIssues(line, year: _year).isNotEmpty;
@@ -129,7 +120,6 @@ class _FacturationPageState extends State<FacturationPage> {
       return matchesQuery &&
           matchesActivity &&
           matchesStatus &&
-          matchesBalance &&
           matchesIncomplete;
     }).toList();
   }
@@ -141,24 +131,6 @@ class _FacturationPageState extends State<FacturationPage> {
     return widget.pendingOutboxCount > lineLevelPending
         ? widget.pendingOutboxCount
         : lineLevelPending;
-  }
-
-  double get _expectedTotal {
-    return linesCountedInBillingTotals(
-      _filteredLines,
-    ).fold<double>(0, (sum, line) => sum + line.expectedDueAmount(_year));
-  }
-
-  double get _paidTotal {
-    return linesCountedInBillingTotals(
-      _filteredLines,
-    ).fold<double>(0, (sum, line) => sum + line.paidTotalDue(_year));
-  }
-
-  double get _balanceTotal {
-    return linesCountedInBillingTotals(
-      _filteredLines,
-    ).fold<double>(0, (sum, line) => sum + line.balanceDue(_year));
   }
 
   int get _billedStaffTotal {
@@ -184,6 +156,13 @@ class _FacturationPageState extends State<FacturationPage> {
       for (final entry in counts.entries)
         if (entry.value > 1) entry.key,
     };
+  }
+
+  int get _commentCount {
+    return _filteredLines.fold<int>(
+      0,
+      (sum, line) => sum + line.cellComments.length,
+    );
   }
 
   void _updateLine(BillingLine oldLine, BillingLine newLine) {
@@ -237,6 +216,11 @@ class _FacturationPageState extends State<FacturationPage> {
     );
     enqueueLineField('billedStaff', oldLine.billedStaff, newLine.billedStaff);
     enqueueLineField('paidStaff', oldLine.paidStaff, newLine.paidStaff);
+    enqueueLineField(
+      'cellComments',
+      oldLine.cellComments,
+      newLine.cellComments,
+    );
     final oldAnnual = oldLine.annualBilling(_year);
     final newAnnual = newLine.annualBilling(_year);
     if (oldAnnual.monthlyRate != newAnnual.monthlyRate) {
@@ -342,28 +326,15 @@ class _FacturationPageState extends State<FacturationPage> {
     final label = line.reference.trim().isEmpty
         ? line.name.trim()
         : line.reference.trim();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Supprimer cette ligne ?'),
-          content: Text(
-            label.isEmpty
-                ? 'Cette action retirera la ligne de la facturation.'
-                : 'Cette action retirera "$label" de la facturation.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Annuler'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Supprimer'),
-            ),
-          ],
-        );
-      },
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Supprimer cette ligne ?',
+      message: label.isEmpty
+          ? 'Cette action retirera la ligne de la facturation.'
+          : 'Cette action retirera "$label" de la facturation.',
+      confirmLabel: 'Supprimer',
+      icon: AppIcons.delete,
+      tone: AppDialogTone.danger,
     );
 
     if (confirmed != true || !mounted) return;
@@ -380,7 +351,6 @@ class _FacturationPageState extends State<FacturationPage> {
   Widget build(BuildContext context) {
     final filtered = _filteredLines;
     final validation = validateBillingLines(_lines, year: _year);
-    final dueMonths = _billingMonthsDueForYear(_year);
 
     return Column(
       children: [
@@ -410,14 +380,11 @@ class _FacturationPageState extends State<FacturationPage> {
                       _FilterBar(
                         activityFilter: _activityFilter,
                         statusFilter: _statusFilter,
-                        onlyWithBalance: _onlyWithBalance,
                         onlyIncomplete: _onlyIncomplete,
                         onActivityChanged: (value) =>
                             setState(() => _activityFilter = value),
                         onStatusChanged: (value) =>
                             setState(() => _statusFilter = value),
-                        onBalanceChanged: (value) =>
-                            setState(() => _onlyWithBalance = value),
                         onIncompleteChanged: (value) =>
                             setState(() => _onlyIncomplete = value),
                         onAddLine: _addLine,
@@ -429,10 +396,7 @@ class _FacturationPageState extends State<FacturationPage> {
                         lineCount: filtered.length,
                         billedStaff: _billedStaffTotal,
                         paidStaff: _paidStaffTotal,
-                        dueMonths: dueMonths,
-                        expectedTotal: _expectedTotal,
-                        paidTotal: _paidTotal,
-                        balanceTotal: _balanceTotal,
+                        commentCount: _commentCount,
                       ),
                       const SizedBox(height: 12),
                       _ValidationStrip(summary: validation),
@@ -594,11 +558,9 @@ class _FilterBar extends StatelessWidget {
   const _FilterBar({
     required this.activityFilter,
     required this.statusFilter,
-    required this.onlyWithBalance,
     required this.onlyIncomplete,
     required this.onActivityChanged,
     required this.onStatusChanged,
-    required this.onBalanceChanged,
     required this.onIncompleteChanged,
     required this.onAddLine,
     required this.onImport,
@@ -607,11 +569,9 @@ class _FilterBar extends StatelessWidget {
 
   final String activityFilter;
   final String statusFilter;
-  final bool onlyWithBalance;
   final bool onlyIncomplete;
   final ValueChanged<String> onActivityChanged;
   final ValueChanged<String> onStatusChanged;
-  final ValueChanged<bool> onBalanceChanged;
   final ValueChanged<bool> onIncompleteChanged;
   final VoidCallback onAddLine;
   final VoidCallback onImport;
@@ -640,13 +600,6 @@ class _FilterBar extends StatelessWidget {
               onChanged: onStatusChanged,
             ),
             const SizedBox(width: 10),
-            FilterChip(
-              selected: onlyWithBalance,
-              avatar: AppIcon(AppIcons.warning, size: 16),
-              label: const Text('Avec reliquat'),
-              onSelected: onBalanceChanged,
-            ),
-            const SizedBox(width: 8),
             FilterChip(
               selected: onlyIncomplete,
               avatar: AppIcon(AppIcons.rule, size: 16),
@@ -728,19 +681,13 @@ class _SummaryStrip extends StatelessWidget {
     required this.lineCount,
     required this.billedStaff,
     required this.paidStaff,
-    required this.dueMonths,
-    required this.expectedTotal,
-    required this.paidTotal,
-    required this.balanceTotal,
+    required this.commentCount,
   });
 
   final int lineCount;
   final int billedStaff;
   final int paidStaff;
-  final int dueMonths;
-  final double expectedTotal;
-  final double paidTotal;
-  final double balanceTotal;
+  final int commentCount;
 
   @override
   Widget build(BuildContext context) {
@@ -770,32 +717,11 @@ class _SummaryStrip extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           MetricTile(
-            label: 'Mois dus',
-            value: '$dueMonths / 12',
-            icon: AppIcons.calendar,
-            caption: 'annee selectionnee',
-          ),
-          const SizedBox(width: 8),
-          MetricTile(
-            label: 'Attendu à date',
-            value: _money(expectedTotal),
-            icon: AppIcons.receipt,
+            label: 'Commentaires',
+            value: '$commentCount',
+            icon: AppIcons.edit,
             caption: 'vue filtrée',
-          ),
-          const SizedBox(width: 8),
-          MetricTile(
-            label: 'Payé à date',
-            value: _money(paidTotal),
-            icon: AppIcons.paid,
-            caption: 'vue filtrée',
-          ),
-          const SizedBox(width: 8),
-          MetricTile(
-            label: 'Reliquat',
-            value: _money(balanceTotal),
-            icon: AppIcons.trend,
-            caption: 'vue filtrée',
-            color: balanceTotal > 0
+            color: commentCount > 0
                 ? const Color(0xFFB45309)
                 : const Color(0xFF15803D),
           ),
@@ -812,7 +738,7 @@ class _ValidationStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!summary.hasIssues) {
+    if (summary.blockingCount == 0) {
       return Container(
         height: 38,
         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -875,10 +801,6 @@ class _ValidationStrip extends StatelessWidget {
             _ValidationPill(
               '${summary.autreWithoutComment} commentaire(s) requis',
             ),
-          if (summary.zeroBilledStaff > 0)
-            _ValidationPill('${summary.zeroBilledStaff} eff. facture a 0'),
-          if (summary.zeroMonthlyRate > 0)
-            _ValidationPill('${summary.zeroMonthlyRate} tarif(s) a 0'),
         ],
       ),
     );
@@ -953,8 +875,6 @@ class _BillingGrid extends StatefulWidget {
     96,
     96,
     96,
-    126,
-    126,
     130,
     116,
   ];
@@ -1091,8 +1011,6 @@ class _GridHeader extends StatelessWidget {
       'Eff paye',
       'Tarif/mois',
       ...months,
-      'Total paye',
-      'Reliquat',
       'Statut',
       'Sync',
     ];
@@ -1166,6 +1084,19 @@ class _GridRow extends StatefulWidget {
 class _GridRowState extends State<_GridRow> {
   bool _hovered = false;
 
+  String _comment(String key) => widget.line.cellComments[key] ?? '';
+
+  void _updateComment(String key, String value) {
+    final nextComments = Map<String, String>.of(widget.line.cellComments);
+    final cleaned = value.trim();
+    if (cleaned.isEmpty) {
+      nextComments.remove(key);
+    } else {
+      nextComments[key] = cleaned;
+    }
+    widget.onUpdate(widget.line.copyWith(cellComments: nextComments));
+  }
+
   @override
   Widget build(BuildContext context) {
     final line = widget.line;
@@ -1176,6 +1107,16 @@ class _GridRowState extends State<_GridRow> {
     final onDelete = widget.onDelete;
     final onUpdate = widget.onUpdate;
     final annual = line.annualBilling(selectedYear);
+    Widget commentable(String key, String label, double width, Widget child) {
+      return _CommentableCell(
+        width: width,
+        label: label,
+        comment: _comment(key),
+        onCommentChanged: (value) => _updateComment(key, value),
+        child: child,
+      );
+    }
+
     final background = selected
         ? const Color(0xFFEFF6FF)
         : _hovered
@@ -1238,109 +1179,150 @@ class _GridRowState extends State<_GridRow> {
                 ),
               ),
             ),
-            EditableCell(
-              value: line.reference,
-              width: _BillingGrid.widths[1],
-              isRequired: true,
-              hasError: hasDuplicateReference,
-              errorMessage: hasDuplicateReference
-                  ? 'Reference deja utilisee'
-                  : null,
-              onChanged: (value) => onUpdate(line.copyWith(reference: value)),
-            ),
-            EditableCell(
-              value: line.name,
-              width: _BillingGrid.widths[2],
-              isRequired: true,
-              onChanged: (value) => onUpdate(line.copyWith(name: value)),
-            ),
-            _DropdownCell(
-              value: line.activity,
-              values: activities,
-              width: _BillingGrid.widths[3],
-              onChanged: (value) => onUpdate(line.copyWith(activity: value)),
-            ),
-            EditableCell(
-              value: line.startDate,
-              width: _BillingGrid.widths[4],
-              onChanged: (value) => onUpdate(line.copyWith(startDate: value)),
-            ),
-            EditableCell(
-              value: line.endDate,
-              width: _BillingGrid.widths[5],
-              onChanged: (value) => onUpdate(line.copyWith(endDate: value)),
-            ),
-            EditableCell(
-              value: line.contractNature,
-              width: _BillingGrid.widths[6],
-              onChanged: (value) =>
-                  onUpdate(line.copyWith(contractNature: value)),
-            ),
-            EditableCell(
-              value: '${line.billedStaff}',
-              width: _BillingGrid.widths[7],
-              textAlign: TextAlign.right,
-              onChanged: (value) =>
-                  onUpdate(line.copyWith(billedStaff: _parseInt(value))),
-            ),
-            EditableCell(
-              value: '${line.paidStaff}',
-              width: _BillingGrid.widths[8],
-              textAlign: TextAlign.right,
-              onChanged: (value) =>
-                  onUpdate(line.copyWith(paidStaff: _parseInt(value))),
-            ),
-            EditableCell(
-              value: _number(annual.monthlyRate),
-              width: _BillingGrid.widths[9],
-              textAlign: TextAlign.right,
-              onChanged: (value) {
-                onUpdate(
-                  line.withAnnualBilling(
-                    selectedYear,
-                    annual.copyWith(monthlyRate: _parseMoney(value)),
-                  ),
-                );
-              },
-            ),
-            for (var i = 0; i < months.length; i++)
+            commentable(
+              'line.reference',
+              'Reference',
+              _BillingGrid.widths[1],
               EditableCell(
-                value: _number(annual.payments[months[i]] ?? 0),
-                width: _BillingGrid.widths[10 + i],
+                value: line.reference,
+                width: _BillingGrid.widths[1],
+                isRequired: true,
+                hasError: hasDuplicateReference,
+                errorMessage: hasDuplicateReference
+                    ? 'Reference deja utilisee'
+                    : null,
+                onChanged: (value) => onUpdate(line.copyWith(reference: value)),
+              ),
+            ),
+            commentable(
+              'line.name',
+              'Nom / Site',
+              _BillingGrid.widths[2],
+              EditableCell(
+                value: line.name,
+                width: _BillingGrid.widths[2],
+                isRequired: true,
+                onChanged: (value) => onUpdate(line.copyWith(name: value)),
+              ),
+            ),
+            commentable(
+              'line.activity',
+              'Activite',
+              _BillingGrid.widths[3],
+              _DropdownCell(
+                value: line.activity,
+                values: activities,
+                width: _BillingGrid.widths[3],
+                onChanged: (value) => onUpdate(line.copyWith(activity: value)),
+              ),
+            ),
+            commentable(
+              'line.startDate',
+              'Debut',
+              _BillingGrid.widths[4],
+              EditableCell(
+                value: line.startDate,
+                width: _BillingGrid.widths[4],
+                onChanged: (value) => onUpdate(line.copyWith(startDate: value)),
+              ),
+            ),
+            commentable(
+              'line.endDate',
+              'Fin',
+              _BillingGrid.widths[5],
+              EditableCell(
+                value: line.endDate,
+                width: _BillingGrid.widths[5],
+                onChanged: (value) => onUpdate(line.copyWith(endDate: value)),
+              ),
+            ),
+            commentable(
+              'line.contractNature',
+              'Nature',
+              _BillingGrid.widths[6],
+              EditableCell(
+                value: line.contractNature,
+                width: _BillingGrid.widths[6],
+                onChanged: (value) =>
+                    onUpdate(line.copyWith(contractNature: value)),
+              ),
+            ),
+            commentable(
+              'line.billedStaff',
+              'Eff facture',
+              _BillingGrid.widths[7],
+              EditableCell(
+                value: '${line.billedStaff}',
+                width: _BillingGrid.widths[7],
+                textAlign: TextAlign.right,
+                onChanged: (value) =>
+                    onUpdate(line.copyWith(billedStaff: _parseInt(value))),
+              ),
+            ),
+            commentable(
+              'line.paidStaff',
+              'Eff paye',
+              _BillingGrid.widths[8],
+              EditableCell(
+                value: '${line.paidStaff}',
+                width: _BillingGrid.widths[8],
+                textAlign: TextAlign.right,
+                onChanged: (value) =>
+                    onUpdate(line.copyWith(paidStaff: _parseInt(value))),
+              ),
+            ),
+            commentable(
+              'annual.$selectedYear.monthlyRate',
+              'Tarif/mois',
+              _BillingGrid.widths[9],
+              EditableCell(
+                value: _number(annual.monthlyRate),
+                width: _BillingGrid.widths[9],
                 textAlign: TextAlign.right,
                 onChanged: (value) {
-                  final next = Map<String, double>.of(annual.payments);
-                  next[months[i]] = _parseMoney(value);
                   onUpdate(
                     line.withAnnualBilling(
                       selectedYear,
-                      annual.copyWith(payments: next),
+                      annual.copyWith(monthlyRate: _parseMoney(value)),
                     ),
                   );
                 },
               ),
-            EditableCell(
-              value: _money(line.paidTotalDue(selectedYear)),
-              width: _BillingGrid.widths[22],
-              textAlign: TextAlign.right,
-              readOnly: true,
-              onChanged: (_) {},
             ),
-            EditableCell(
-              value: _money(line.balanceDue(selectedYear)),
-              width: _BillingGrid.widths[23],
-              textAlign: TextAlign.right,
-              readOnly: true,
-              onChanged: (_) {},
-            ),
-            _DropdownCell(
-              value: line.status,
-              values: statuses,
-              width: _BillingGrid.widths[24],
-              onChanged: (value) => onUpdate(line.copyWith(status: value)),
+            for (var i = 0; i < months.length; i++)
+              commentable(
+                'annual.$selectedYear.${months[i]}',
+                months[i],
+                _BillingGrid.widths[10 + i],
+                EditableCell(
+                  value: _number(annual.payments[months[i]] ?? 0),
+                  width: _BillingGrid.widths[10 + i],
+                  textAlign: TextAlign.right,
+                  onChanged: (value) {
+                    final next = Map<String, double>.of(annual.payments);
+                    next[months[i]] = _parseMoney(value);
+                    onUpdate(
+                      line.withAnnualBilling(
+                        selectedYear,
+                        annual.copyWith(payments: next),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            commentable(
+              'line.status',
+              'Statut',
+              _BillingGrid.widths[22],
+              _DropdownCell(
+                value: line.status,
+                values: statuses,
+                width: _BillingGrid.widths[22],
+                onChanged: (value) => onUpdate(line.copyWith(status: value)),
+              ),
             ),
             SizedBox(
-              width: _BillingGrid.widths[25],
+              width: _BillingGrid.widths[23],
               child: Center(child: SyncBadge(state: line.syncState)),
             ),
           ],
@@ -1348,6 +1330,144 @@ class _GridRowState extends State<_GridRow> {
       ),
     );
   }
+}
+
+class _CommentableCell extends StatelessWidget {
+  const _CommentableCell({
+    required this.width,
+    required this.label,
+    required this.comment,
+    required this.onCommentChanged,
+    required this.child,
+  });
+
+  final double width;
+  final String label;
+  final String comment;
+  final ValueChanged<String> onCommentChanged;
+  final Widget child;
+
+  bool get _hasComment => comment.trim().isNotEmpty;
+
+  Future<void> _openCommentDialog(BuildContext context) async {
+    final controller = TextEditingController(text: comment);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Commentaire - $label'),
+        content: SizedBox(
+          width: 420,
+          child: TextField(
+            controller: controller,
+            minLines: 4,
+            maxLines: 7,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'Ajouter une note pour cette cellule',
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(''),
+            child: const Text('Effacer'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(null),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null) return;
+    onCommentChanged(result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Listener(
+      onPointerDown: (event) {
+        if (event.buttons == 2) {
+          _openCommentDialog(context);
+        }
+      },
+      child: SizedBox(
+        width: width,
+        child: Stack(
+          children: [
+            if (_hasComment)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0x33FACC15),
+                      border: Border.all(color: const Color(0xFFEAB308)),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+              ),
+            child,
+            if (_hasComment)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0x22FACC15),
+                      border: Border.all(color: const Color(0xFFEAB308)),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+              ),
+            if (_hasComment)
+              Positioned(
+                top: 0,
+                right: 0,
+                child: Tooltip(
+                  message: comment,
+                  child: GestureDetector(
+                    onTap: () => _openCommentDialog(context),
+                    child: CustomPaint(
+                      size: const Size(12, 12),
+                      painter: _CommentCornerPainter(),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+
+    return Tooltip(
+      message: _hasComment
+          ? 'Commentaire : $comment'
+          : 'Clic droit pour ajouter un commentaire',
+      child: content,
+    );
+  }
+}
+
+class _CommentCornerPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = const Color(0xFFEAB308);
+    final path = Path()
+      ..moveTo(size.width, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, 0)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _DropdownCell extends StatelessWidget {
@@ -1509,27 +1629,6 @@ class _LineDetailPanel extends StatelessWidget {
             _DetailItem(
               label: 'Tarif mensuel',
               value: _money(annual.monthlyRate),
-            ),
-            const Divider(height: 28),
-            _DetailItem(
-              label: 'Mois dus',
-              value: '${line.billingMonthsDue(selectedYear)} / 12',
-            ),
-            _DetailItem(
-              label: 'Attendu a date',
-              value: _money(line.expectedDueAmount(selectedYear)),
-            ),
-            _DetailItem(
-              label: 'Total paye a date',
-              value: _money(line.paidTotalDue(selectedYear)),
-            ),
-            _DetailItem(
-              label: 'Reliquat',
-              value: _money(line.balanceDue(selectedYear)),
-            ),
-            _DetailItem(
-              label: 'Attendu annuel',
-              value: _money(line.expectedYearAmount(selectedYear)),
             ),
             const Divider(height: 28),
             const Text(
@@ -1738,13 +1837,6 @@ double _parseMoney(String value) {
   }
 
   return double.tryParse(cleaned) ?? 0;
-}
-
-int _billingMonthsDueForYear(int year, {DateTime? asOf}) {
-  final today = asOf ?? DateTime.now();
-  if (year < today.year) return 12;
-  if (year > today.year) return 0;
-  return (today.month - 1).clamp(0, 12);
 }
 
 String _normalizeSingleSeparator(String value, String separator) {

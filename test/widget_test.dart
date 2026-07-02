@@ -10,6 +10,7 @@ void main() {
         initialLines: buildSampleBillingLines(),
         persistLocalData: false,
         remoteSyncClient: const FirebaseNotConfiguredSyncClient(),
+        requireAuth: false,
       ),
     );
     await tester.pumpAndSettle();

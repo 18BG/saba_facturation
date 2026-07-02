@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/billing_line.dart';
 import '../models/billing_years.dart';
 import '../theme/app_icons.dart';
+import '../widgets/app_dialog.dart';
 import '../widgets/app_icon.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -17,6 +18,7 @@ class SettingsPage extends StatelessWidget {
     required this.onYearChanged,
     required this.onResetLocalData,
     required this.onResetRemoteData,
+    this.currentUserEmail,
   });
 
   final int selectedYear;
@@ -27,6 +29,7 @@ class SettingsPage extends StatelessWidget {
   final ValueChanged<int> onYearChanged;
   final Future<void> Function() onResetLocalData;
   final Future<void> Function() onResetRemoteData;
+  final String? currentUserEmail;
 
   @override
   Widget build(BuildContext context) {
@@ -156,6 +159,34 @@ class SettingsPage extends StatelessWidget {
                                   : '$pendingOutboxCount en attente',
                               ok: pendingOutboxCount == 0 && !syncing,
                             ),
+                            if (currentUserEmail != null) ...[
+                              const SizedBox(height: 24),
+                              const Text(
+                                'Compte',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  AppIcon(
+                                    AppIcons.badge,
+                                    size: 17,
+                                    color: const Color(0xFF64748B),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      currentUserEmail!,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Color(0xFF334155),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                             if (kDebugMode) ...[
                               const SizedBox(height: 28),
                               const Divider(),
@@ -206,26 +237,14 @@ class SettingsPage extends StatelessWidget {
   }
 
   Future<void> _confirmReset(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Reinitialiser les donnees locales ?'),
-          content: const Text(
-            'Cette action vide les donnees sauvegardees sur cet ordinateur. Elle est reservee au debug.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Annuler'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Reinitialiser'),
-            ),
-          ],
-        );
-      },
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Reinitialiser les donnees locales ?',
+      message:
+          'Cette action vide les donnees sauvegardees sur cet ordinateur. Elle est reservee au debug.',
+      confirmLabel: 'Reinitialiser',
+      icon: AppIcons.warning,
+      tone: AppDialogTone.danger,
     );
 
     if (confirmed != true || !context.mounted) return;
@@ -239,26 +258,14 @@ class SettingsPage extends StatelessWidget {
   }
 
   Future<void> _confirmResetRemote(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Reinitialiser la base distante ?'),
-          content: const Text(
-            'Cette action vide les donnees Firestore de facturation. Elle est reservee au debug.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Annuler'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Reinitialiser'),
-            ),
-          ],
-        );
-      },
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Reinitialiser la base distante ?',
+      message:
+          'Cette action vide les donnees Firestore de facturation. Elle est reservee au debug.',
+      confirmLabel: 'Reinitialiser',
+      icon: AppIcons.cloudOff,
+      tone: AppDialogTone.danger,
     );
 
     if (confirmed != true || !context.mounted) return;

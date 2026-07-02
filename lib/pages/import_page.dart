@@ -7,6 +7,7 @@ import '../import/billing_excel_importer.dart';
 import '../models/billing_line.dart';
 import '../models/billing_years.dart';
 import '../theme/app_icons.dart';
+import '../widgets/app_dialog.dart';
 import '../widgets/app_icon.dart';
 
 enum ImportApplyMode { append, replace }
@@ -137,26 +138,14 @@ class _ImportPageState extends State<ImportPage> {
   }
 
   Future<void> _confirmReplace(BillingExcelImportResult result) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Remplacer les donnees locales ?'),
-          content: Text(
-            '${result.importedCount} ligne(s) vont remplacer les lignes actuellement stockees sur cet ordinateur.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Annuler'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Remplacer'),
-            ),
-          ],
-        );
-      },
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Remplacer les donnees locales ?',
+      message:
+          '${result.importedCount} ligne(s) vont remplacer les lignes actuellement stockees sur cet ordinateur.',
+      confirmLabel: 'Remplacer',
+      icon: AppIcons.importFile,
+      tone: AppDialogTone.danger,
     );
 
     if (confirmed == true) await _apply(ImportApplyMode.replace);

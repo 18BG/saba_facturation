@@ -128,6 +128,7 @@ class FirestoreChangeMapper {
       'paidStaff': raw['paidStaff'],
       'status': raw['status'],
       'statusComment': raw['statusComment'],
+      'cellComments': raw['cellComments'],
     };
   }
 

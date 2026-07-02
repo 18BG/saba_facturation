@@ -16,7 +16,9 @@ import 'sync/persistent_sync_engine.dart';
 import 'sync/remote_sync_client.dart';
 import 'sync/remote_line_merge.dart';
 import 'theme/app_icons.dart';
+import 'widgets/app_dialog.dart';
 import 'widgets/app_icon.dart';
+import 'widgets/brand_logo.dart';
 import 'widgets/facturation_skeleton.dart';
 
 class AppShell extends StatefulWidget {
@@ -25,11 +27,15 @@ class AppShell extends StatefulWidget {
     this.initialLines,
     this.persistLocalData = true,
     this.remoteSyncClient,
+    this.onSignOut,
+    this.currentUserEmail,
   });
 
   final List<BillingLine>? initialLines;
   final bool persistLocalData;
   final RemoteSyncClient? remoteSyncClient;
+  final Future<void> Function()? onSignOut;
+  final String? currentUserEmail;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -52,6 +58,8 @@ class _AppShellState extends State<AppShell> {
   Timer? _syncTimer;
   Timer? _remotePullTimer;
   PersistentSyncEngine? _syncEngine;
+  Future<void> _localWriteChain = Future<void>.value();
+  int _localDataEpoch = 0;
 
   @override
   void initState() {
@@ -142,15 +150,15 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _persistLines(List<BillingLine> lines) async {
-    try {
+    await _enqueueLocalWrite(() async {
       await _localStore?.saveLines(lines);
-    } on Object catch (error) {
+    }, (error) {
       if (!mounted) return;
       setState(() {
         _startupWarning =
             'Les donnees sont gardees en memoire, mais la sauvegarde locale a echoue. Detail : $error';
       });
-    }
+    });
   }
 
   void _savePendingChanges(List<PendingChange> changes) {
@@ -160,21 +168,25 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _persistPendingChanges(List<PendingChange> changes) async {
-    try {
+    await _enqueueLocalWrite(() async {
       await _localStore?.enqueuePendingChanges(changes);
       await _refreshPendingOutboxCount();
       _queueSyncAttempt();
-    } on Object catch (error) {
+    }, (error) {
       if (!mounted) return;
       setState(() {
         _startupWarning =
             'La modification est visible, mais la file de sync locale n a pas pu etre mise a jour. Detail : $error';
       });
-    }
+    });
   }
 
   Future<void> _resetLocalData() async {
     _persistTimer?.cancel();
+    _syncTimer?.cancel();
+    _remotePullTimer?.cancel();
+    _localDataEpoch++;
+    await _localWriteChain.catchError((_) {});
     await _localStore?.clear();
     if (!mounted) return;
     setState(() {
@@ -184,6 +196,23 @@ class _AppShellState extends State<AppShell> {
       _syncInfo = null;
       _startupWarning = null;
     });
+  }
+
+  Future<void> _enqueueLocalWrite(
+    Future<void> Function() write,
+    void Function(Object error) onError,
+  ) {
+    final epoch = _localDataEpoch;
+    final run = _localWriteChain.catchError((_) {}).then((_) async {
+      if (epoch != _localDataEpoch) return;
+      try {
+        await write();
+      } on Object catch (error) {
+        if (epoch == _localDataEpoch) onError(error);
+      }
+    });
+    _localWriteChain = run;
+    return run;
   }
 
   Future<void> _resetRemoteData() async {
@@ -207,6 +236,23 @@ class _AppShellState extends State<AppShell> {
             'La reinitialisation distante a echoue. Detail : $error';
       });
     }
+  }
+
+  Future<void> _confirmSignOut() async {
+    final onSignOut = widget.onSignOut;
+    if (onSignOut == null) return;
+
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Se deconnecter ?',
+      message:
+          'Vous reviendrez a l ecran de connexion. Les donnees locales restent sur cet ordinateur.',
+      confirmLabel: 'Se deconnecter',
+      icon: AppIcons.logout,
+    );
+
+    if (confirmed != true) return;
+    await onSignOut();
   }
 
   void _setOffline(bool value) {
@@ -456,6 +502,7 @@ class _AppShellState extends State<AppShell> {
         onYearChanged: (year) => setState(() => _selectedYear = year),
         onResetLocalData: _resetLocalData,
         onResetRemoteData: _resetRemoteData,
+        currentUserEmail: widget.currentUserEmail,
       ),
       _ => _buildFacturationPage(),
     };
@@ -551,6 +598,16 @@ class _AppShellState extends State<AppShell> {
                   label: const Text('Parametres'),
                 ),
             ],
+            trailing: widget.onSignOut == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(top: 24, bottom: 16),
+                    child: _SignOutControl(
+                      extended: railExtended,
+                      email: widget.currentUserEmail,
+                      onSignOut: _confirmSignOut,
+                    ),
+                  ),
           ),
           const VerticalDivider(width: 1),
           Expanded(
@@ -680,33 +737,80 @@ class _StartupWarningBanner extends StatelessWidget {
   }
 }
 
+class _SignOutControl extends StatelessWidget {
+  const _SignOutControl({
+    required this.extended,
+    required this.email,
+    required this.onSignOut,
+  });
+
+  final bool extended;
+  final String? email;
+  final Future<void> Function() onSignOut;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!extended) {
+      return Tooltip(
+        message: email == null ? 'Se deconnecter' : 'Se deconnecter ($email)',
+        child: IconButton(
+          onPressed: onSignOut,
+          icon: AppIcon(
+            AppIcons.logout,
+            size: 20,
+            color: const Color(0xFF64748B),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: 232,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (email != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8, left: 4),
+                child: Text(
+                  email!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF94A3B8),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            OutlinedButton.icon(
+              onPressed: onSignOut,
+              icon: AppIcon(
+                AppIcons.logout,
+                size: 17,
+                color: const Color(0xFF475569),
+              ),
+              label: const Text('Se deconnecter'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _BrandMark extends StatelessWidget {
   const _BrandMark();
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Center(
-            child: AppIcon(AppIcons.receipt, color: Colors.white, size: 22),
-          ),
-        ),
-        if (MediaQuery.sizeOf(context).width >= 1180) ...[
-          const SizedBox(width: 10),
-          const Text(
-            'Facturation RH',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ],
-      ],
+    final extended = MediaQuery.sizeOf(context).width >= 1180;
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: extended ? 12 : 0),
+      child: BrandLogo(height: extended ? 40 : 30),
     );
   }
 }

@@ -2,6 +2,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'app_shell.dart';
+import 'auth/auth_gate.dart';
+import 'auth/auth_service.dart';
 import 'firebase_options.dart';
 import 'models/billing_line.dart';
 import 'sync/remote_sync_client.dart';
@@ -41,23 +43,39 @@ class FacturationApp extends StatelessWidget {
     this.initialLines,
     this.persistLocalData = true,
     this.remoteSyncClient,
+    this.authService,
+    this.requireAuth = true,
   });
 
   final List<BillingLine>? initialLines;
   final bool persistLocalData;
   final RemoteSyncClient? remoteSyncClient;
+  final AuthService? authService;
+
+  /// When false, the app mounts straight into [AppShell] without the auth
+  /// gate. Used by widget tests to bypass Firebase Auth.
+  final bool requireAuth;
 
   @override
   Widget build(BuildContext context) {
+    final Widget home = requireAuth
+        ? AuthGate(
+            authService: authService ?? AuthService(),
+            initialLines: initialLines,
+            persistLocalData: persistLocalData,
+            remoteSyncClient: remoteSyncClient,
+          )
+        : AppShell(
+            initialLines: initialLines,
+            persistLocalData: persistLocalData,
+            remoteSyncClient: remoteSyncClient,
+          );
+
     return MaterialApp(
       title: 'Facturation RH',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
-      home: AppShell(
-        initialLines: initialLines,
-        persistLocalData: persistLocalData,
-        remoteSyncClient: remoteSyncClient,
-      ),
+      home: home,
     );
   }
 }

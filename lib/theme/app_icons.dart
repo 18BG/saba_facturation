@@ -26,4 +26,11 @@ abstract final class AppIcons {
   static const fileOpen = HugeIcons.strokeRoundedFileView;
   static const rule = HugeIcons.strokeRoundedFileValidation;
   static const calendar = HugeIcons.strokeRoundedClock01;
+  static const mail = HugeIcons.strokeRoundedMail01;
+  static const lock = HugeIcons.strokeRoundedLockPassword;
+  static const eye = HugeIcons.strokeRoundedView;
+  static const eyeOff = HugeIcons.strokeRoundedViewOff;
+  static const logout = HugeIcons.strokeRoundedLogout01;
+  static const login = HugeIcons.strokeRoundedLogin01;
+  static const delete = HugeIcons.strokeRoundedDelete02;
 }

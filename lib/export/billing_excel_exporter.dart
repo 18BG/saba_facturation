@@ -36,13 +36,12 @@ class BillingExcelExporter {
         if (!options.onlyActive || line.status == 'Actif') line,
     ];
 
-    _writeHeader(sheet, options);
+    _writeHeader(sheet);
     for (var i = 0; i < filteredLines.length; i++) {
       _writeLine(sheet, filteredLines[i], options);
     }
-    _writeTotals(sheet, filteredLines, options);
     _writeAlerts(workbook, filteredLines, options);
-    _setColumnWidths(sheet, options);
+    _setColumnWidths(sheet);
 
     final bytes = workbook.encode();
     if (bytes == null) {
@@ -63,7 +62,10 @@ class BillingExcelExporter {
       final issues = [
         if (duplicateReferences.contains(line.reference.trim().toUpperCase()))
           'Reference deja utilisee.',
-        ...billingLineIssues(line, year: options.year),
+        ...billingLineIssues(
+          line,
+          year: options.year,
+        ).where(_isUserActionableIssue),
       ];
       for (final issue in issues) {
         alertRows.add([
@@ -93,7 +95,7 @@ class BillingExcelExporter {
     sheet.setColumnWidth(3, 42);
   }
 
-  void _writeHeader(Sheet sheet, BillingExcelExportOptions options) {
+  void _writeHeader(Sheet sheet) {
     final headers = [
       'Reference',
       'SITE',
@@ -106,14 +108,6 @@ class BillingExcelExporter {
       'Position client',
       'Tarif mensuel',
       ...months,
-      'Total paye',
-      if (options.includeBalanceColumns) ...[
-        'Attendu a date',
-        'Paye a date',
-        'Reliquat a date',
-        'Attendu annuel',
-        'Reliquat annuel',
-      ],
     ];
 
     sheet.appendRow([for (final header in headers) TextCellValue(header)]);
@@ -137,87 +131,12 @@ class BillingExcelExporter {
       TextCellValue(line.status),
       DoubleCellValue(annual.monthlyRate),
       for (final month in months) DoubleCellValue(annual.payments[month] ?? 0),
-      DoubleCellValue(line.paidTotal(options.year)),
-      if (options.includeBalanceColumns) ...[
-        DoubleCellValue(line.expectedDueAmount(options.year)),
-        DoubleCellValue(line.paidTotalDue(options.year)),
-        DoubleCellValue(line.balanceDue(options.year)),
-        DoubleCellValue(line.expectedYearAmount(options.year)),
-        DoubleCellValue(line.balance(options.year)),
-      ],
     ];
 
     sheet.appendRow(values);
   }
 
-  void _writeTotals(
-    Sheet sheet,
-    List<BillingLine> lines,
-    BillingExcelExportOptions options,
-  ) {
-    final countedLines = linesCountedInBillingTotals(lines).toList();
-    final totalPaid = countedLines.fold<double>(
-      0,
-      (sum, line) => sum + line.paidTotal(options.year),
-    );
-    final totalDueExpected = countedLines.fold<double>(
-      0,
-      (sum, line) => sum + line.expectedDueAmount(options.year),
-    );
-    final totalDuePaid = countedLines.fold<double>(
-      0,
-      (sum, line) => sum + line.paidTotalDue(options.year),
-    );
-    final totalDueBalance = countedLines.fold<double>(
-      0,
-      (sum, line) => sum + line.balanceDue(options.year),
-    );
-    final totalYearExpected = countedLines.fold<double>(
-      0,
-      (sum, line) => sum + line.expectedYearAmount(options.year),
-    );
-    final totalYearBalance = countedLines.fold<double>(
-      0,
-      (sum, line) => sum + line.balance(options.year),
-    );
-
-    final values = <CellValue?>[
-      TextCellValue('TOTAUX'),
-      null,
-      null,
-      null,
-      null,
-      null,
-      IntCellValue(
-        countedLines.fold<int>(0, (sum, line) => sum + line.billedStaff),
-      ),
-      IntCellValue(
-        countedLines.fold<int>(0, (sum, line) => sum + line.paidStaff),
-      ),
-      null,
-      null,
-      for (final month in months)
-        DoubleCellValue(
-          countedLines.fold<double>(
-            0,
-            (sum, line) =>
-                sum + (line.annualBilling(options.year).payments[month] ?? 0),
-          ),
-        ),
-      DoubleCellValue(totalPaid),
-      if (options.includeBalanceColumns) ...[
-        DoubleCellValue(totalDueExpected),
-        DoubleCellValue(totalDuePaid),
-        DoubleCellValue(totalDueBalance),
-        DoubleCellValue(totalYearExpected),
-        DoubleCellValue(totalYearBalance),
-      ],
-    ];
-
-    sheet.appendRow(values);
-  }
-
-  void _setColumnWidths(Sheet sheet, BillingExcelExportOptions options) {
+  void _setColumnWidths(Sheet sheet) {
     const widths = <double>[
       18,
       30,
@@ -249,7 +168,7 @@ class BillingExcelExporter {
       16,
     ];
 
-    final columnCount = options.includeBalanceColumns ? widths.length : 23;
+    const columnCount = 22;
     for (var i = 0; i < columnCount; i++) {
       sheet.setColumnWidth(i, widths[i]);
     }
@@ -266,5 +185,9 @@ class BillingExcelExporter {
       for (final entry in counts.entries)
         if (entry.value > 1) entry.key,
     };
+  }
+
+  bool _isUserActionableIssue(String issue) {
+    return issue != 'Eff facture a 0.' && issue != 'Tarif mensuel a 0.';
   }
 }

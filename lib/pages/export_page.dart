@@ -25,7 +25,6 @@ class _ExportPageState extends State<ExportPage> {
   final BillingExcelExporter _exporter = const BillingExcelExporter();
   late int _year;
   bool _onlyActive = true;
-  bool _includeBalance = true;
   bool _isExporting = false;
 
   @override
@@ -59,7 +58,7 @@ class _ExportPageState extends State<ExportPage> {
         options: BillingExcelExportOptions(
           year: _year,
           onlyActive: _onlyActive,
-          includeBalanceColumns: _includeBalance,
+          includeBalanceColumns: false,
         ),
       );
 
@@ -104,7 +103,7 @@ class _ExportPageState extends State<ExportPage> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Sortir un fichier proche du classeur actuel, avec totaux et reliquats.',
+            'Sortir un fichier proche du classeur actuel, sans calcul automatique.',
             style: TextStyle(color: Color(0xFF64748B)),
           ),
           const SizedBox(height: 20),
@@ -148,15 +147,6 @@ class _ExportPageState extends State<ExportPage> {
                         '$_exportableCount ligne(s) seront exportees',
                       ),
                       onChanged: (value) => setState(() => _onlyActive = value),
-                    ),
-                    SwitchListTile(
-                      value: _includeBalance,
-                      title: const Text('Inclure attendu, paye et reliquat'),
-                      subtitle: const Text(
-                        'Ajoute les colonnes de suivi a date et annuel',
-                      ),
-                      onChanged: (value) =>
-                          setState(() => _includeBalance = value),
                     ),
                     if (_exportableCount == 0) ...[
                       const SizedBox(height: 8),

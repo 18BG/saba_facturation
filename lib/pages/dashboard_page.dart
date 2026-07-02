@@ -19,27 +19,14 @@ class DashboardPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final countedLines = linesCountedInBillingTotals(lines).toList();
-    final expected = countedLines.fold<double>(
-      0,
-      (sum, line) => sum + line.expectedDueAmount(selectedYear),
-    );
-    final paid = countedLines.fold<double>(
-      0,
-      (sum, line) => sum + line.paidTotalDue(selectedYear),
-    );
-    final balance = countedLines.fold<double>(
-      0,
-      (sum, line) => sum + line.balanceDue(selectedYear),
-    );
     final activeLines = lines.where((line) => line.status == 'Actif').length;
-    final topBalances = [...countedLines]
-      ..sort(
-        (a, b) =>
-            b.balanceDue(selectedYear).compareTo(a.balanceDue(selectedYear)),
-      );
-    final monthsDue = lines.isEmpty
-        ? 0
-        : lines.first.billingMonthsDue(selectedYear);
+    final commentCount = lines.fold<int>(
+      0,
+      (sum, line) => sum + line.cellComments.length,
+    );
+    final commentedLines = lines
+        .where((line) => line.cellComments.isNotEmpty)
+        .toList();
     final validation = validateBillingLines(lines, year: selectedYear);
 
     return Padding(
@@ -50,7 +37,7 @@ class DashboardPage extends StatelessWidget {
           _PageTitle(
             title: 'Dashboard',
             subtitle:
-                "Vue rapide de l'annee $selectedYear - suivi jusqu'au dernier mois clos ($monthsDue/12).",
+                "Vue rapide de l'annee $selectedYear - lignes, alertes et commentaires.",
           ),
           const SizedBox(height: 18),
           Wrap(
@@ -58,38 +45,34 @@ class DashboardPage extends StatelessWidget {
             runSpacing: 10,
             children: [
               MetricTile(
+                label: 'Lignes',
+                value: '${lines.length}',
+                icon: AppIcons.table,
+                caption: 'base locale',
+              ),
+              MetricTile(
                 label: 'Lignes actives',
                 value: '$activeLines',
                 icon: AppIcons.lines,
-                caption: 'toute l’année',
+                caption: 'base locale',
               ),
               MetricTile(
-                label: 'Attendu à date',
-                value: _money(expected),
-                icon: AppIcons.receipt,
-                caption: 'toute l’année',
-              ),
-              MetricTile(
-                label: 'Payé à date',
-                value: _money(paid),
-                icon: AppIcons.paid,
-                caption: 'toute l’année',
-              ),
-              MetricTile(
-                label: 'Reliquat',
-                value: _money(balance),
-                icon: AppIcons.warning,
-                caption: 'toute l’année',
-                color: const Color(0xFFB45309),
+                label: 'Commentaires',
+                value: '$commentCount',
+                icon: AppIcons.edit,
+                caption: 'cellules annotees',
+                color: commentCount > 0
+                    ? const Color(0xFFB45309)
+                    : const Color(0xFF15803D),
               ),
               MetricTile(
                 label: 'Alertes',
-                value: '${validation.totalCount}',
+                value: '${validation.blockingCount}',
                 icon: AppIcons.rule,
                 caption: validation.blockingCount > 0
                     ? '${validation.blockingCount} a corriger'
                     : 'controle metier',
-                color: validation.totalCount > 0
+                color: validation.blockingCount > 0
                     ? const Color(0xFFB45309)
                     : const Color(0xFF15803D),
               ),
@@ -109,7 +92,7 @@ class DashboardPage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'Plus gros reliquats',
+                            'Lignes commentees',
                             style: TextStyle(
                               fontSize: 17,
                               fontWeight: FontWeight.w800,
@@ -117,17 +100,17 @@ class DashboardPage extends StatelessWidget {
                           ),
                           const SizedBox(height: 10),
                           Expanded(
-                            child: topBalances.isEmpty
+                            child: commentedLines.isEmpty
                                 ? const _DashboardEmptyState(
                                     message:
-                                        'Aucune ligne disponible pour cette annee.',
+                                        'Aucun commentaire de cellule pour cette annee.',
                                   )
                                 : ListView.separated(
-                                    itemCount: topBalances.length,
+                                    itemCount: commentedLines.length,
                                     separatorBuilder: (_, index) =>
                                         const Divider(height: 1),
                                     itemBuilder: (context, index) {
-                                      final line = topBalances[index];
+                                      final line = commentedLines[index];
                                       return ListTile(
                                         contentPadding: EdgeInsets.zero,
                                         title: Text(line.name),
@@ -135,7 +118,7 @@ class DashboardPage extends StatelessWidget {
                                           '${line.reference} - ${line.activity}',
                                         ),
                                         trailing: Text(
-                                          _money(line.balanceDue(selectedYear)),
+                                          '${line.cellComments.length}',
                                           style: const TextStyle(
                                             fontWeight: FontWeight.w800,
                                           ),
@@ -261,16 +244,4 @@ class _PageTitle extends StatelessWidget {
       ],
     );
   }
-}
-
-String _money(double value) {
-  final negative = value < 0;
-  final rounded = value.abs().round().toString();
-  final buffer = StringBuffer();
-  for (var i = 0; i < rounded.length; i++) {
-    final fromEnd = rounded.length - i;
-    buffer.write(rounded[i]);
-    if (fromEnd > 1 && fromEnd % 3 == 1) buffer.write(' ');
-  }
-  return '${negative ? '-' : ''}$buffer FCFA';
 }

@@ -148,6 +148,18 @@ class $BillingLineRecordsTable extends BillingLineRecords
     requiredDuringInsert: false,
     defaultValue: const Constant('synced'),
   );
+  static const VerificationMeta _cellCommentsJsonMeta = const VerificationMeta(
+    'cellCommentsJson',
+  );
+  @override
+  late final GeneratedColumn<String> cellCommentsJson = GeneratedColumn<String>(
+    'cell_comments_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('{}'),
+  );
   static const VerificationMeta _updatedAtMeta = const VerificationMeta(
     'updatedAt',
   );
@@ -173,6 +185,7 @@ class $BillingLineRecordsTable extends BillingLineRecords
     status,
     statusComment,
     syncState,
+    cellCommentsJson,
     updatedAt,
   ];
   @override
@@ -270,6 +283,15 @@ class $BillingLineRecordsTable extends BillingLineRecords
         syncState.isAcceptableOrUnknown(data['sync_state']!, _syncStateMeta),
       );
     }
+    if (data.containsKey('cell_comments_json')) {
+      context.handle(
+        _cellCommentsJsonMeta,
+        cellCommentsJson.isAcceptableOrUnknown(
+          data['cell_comments_json']!,
+          _cellCommentsJsonMeta,
+        ),
+      );
+    }
     if (data.containsKey('updated_at')) {
       context.handle(
         _updatedAtMeta,
@@ -335,6 +357,10 @@ class $BillingLineRecordsTable extends BillingLineRecords
         DriftSqlType.string,
         data['${effectivePrefix}sync_state'],
       )!,
+      cellCommentsJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cell_comments_json'],
+      )!,
       updatedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
@@ -362,6 +388,7 @@ class BillingLineRecord extends DataClass
   final String status;
   final String statusComment;
   final String syncState;
+  final String cellCommentsJson;
   final DateTime updatedAt;
   const BillingLineRecord({
     required this.localId,
@@ -376,6 +403,7 @@ class BillingLineRecord extends DataClass
     required this.status,
     required this.statusComment,
     required this.syncState,
+    required this.cellCommentsJson,
     required this.updatedAt,
   });
   @override
@@ -393,6 +421,7 @@ class BillingLineRecord extends DataClass
     map['status'] = Variable<String>(status);
     map['status_comment'] = Variable<String>(statusComment);
     map['sync_state'] = Variable<String>(syncState);
+    map['cell_comments_json'] = Variable<String>(cellCommentsJson);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
   }
@@ -411,6 +440,7 @@ class BillingLineRecord extends DataClass
       status: Value(status),
       statusComment: Value(statusComment),
       syncState: Value(syncState),
+      cellCommentsJson: Value(cellCommentsJson),
       updatedAt: Value(updatedAt),
     );
   }
@@ -433,6 +463,7 @@ class BillingLineRecord extends DataClass
       status: serializer.fromJson<String>(json['status']),
       statusComment: serializer.fromJson<String>(json['statusComment']),
       syncState: serializer.fromJson<String>(json['syncState']),
+      cellCommentsJson: serializer.fromJson<String>(json['cellCommentsJson']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
   }
@@ -452,6 +483,7 @@ class BillingLineRecord extends DataClass
       'status': serializer.toJson<String>(status),
       'statusComment': serializer.toJson<String>(statusComment),
       'syncState': serializer.toJson<String>(syncState),
+      'cellCommentsJson': serializer.toJson<String>(cellCommentsJson),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
   }
@@ -469,6 +501,7 @@ class BillingLineRecord extends DataClass
     String? status,
     String? statusComment,
     String? syncState,
+    String? cellCommentsJson,
     DateTime? updatedAt,
   }) => BillingLineRecord(
     localId: localId ?? this.localId,
@@ -483,6 +516,7 @@ class BillingLineRecord extends DataClass
     status: status ?? this.status,
     statusComment: statusComment ?? this.statusComment,
     syncState: syncState ?? this.syncState,
+    cellCommentsJson: cellCommentsJson ?? this.cellCommentsJson,
     updatedAt: updatedAt ?? this.updatedAt,
   );
   BillingLineRecord copyWithCompanion(BillingLineRecordsCompanion data) {
@@ -505,6 +539,9 @@ class BillingLineRecord extends DataClass
           ? data.statusComment.value
           : this.statusComment,
       syncState: data.syncState.present ? data.syncState.value : this.syncState,
+      cellCommentsJson: data.cellCommentsJson.present
+          ? data.cellCommentsJson.value
+          : this.cellCommentsJson,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
   }
@@ -524,6 +561,7 @@ class BillingLineRecord extends DataClass
           ..write('status: $status, ')
           ..write('statusComment: $statusComment, ')
           ..write('syncState: $syncState, ')
+          ..write('cellCommentsJson: $cellCommentsJson, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
         .toString();
@@ -543,6 +581,7 @@ class BillingLineRecord extends DataClass
     status,
     statusComment,
     syncState,
+    cellCommentsJson,
     updatedAt,
   );
   @override
@@ -561,6 +600,7 @@ class BillingLineRecord extends DataClass
           other.status == this.status &&
           other.statusComment == this.statusComment &&
           other.syncState == this.syncState &&
+          other.cellCommentsJson == this.cellCommentsJson &&
           other.updatedAt == this.updatedAt);
 }
 
@@ -577,6 +617,7 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
   final Value<String> status;
   final Value<String> statusComment;
   final Value<String> syncState;
+  final Value<String> cellCommentsJson;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
   const BillingLineRecordsCompanion({
@@ -592,6 +633,7 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
     this.status = const Value.absent(),
     this.statusComment = const Value.absent(),
     this.syncState = const Value.absent(),
+    this.cellCommentsJson = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -608,6 +650,7 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
     this.status = const Value.absent(),
     this.statusComment = const Value.absent(),
     this.syncState = const Value.absent(),
+    this.cellCommentsJson = const Value.absent(),
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
   }) : localId = Value(localId),
@@ -625,6 +668,7 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
     Expression<String>? status,
     Expression<String>? statusComment,
     Expression<String>? syncState,
+    Expression<String>? cellCommentsJson,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
   }) {
@@ -641,6 +685,7 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
       if (status != null) 'status': status,
       if (statusComment != null) 'status_comment': statusComment,
       if (syncState != null) 'sync_state': syncState,
+      if (cellCommentsJson != null) 'cell_comments_json': cellCommentsJson,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
     });
@@ -659,6 +704,7 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
     Value<String>? status,
     Value<String>? statusComment,
     Value<String>? syncState,
+    Value<String>? cellCommentsJson,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
   }) {
@@ -675,6 +721,7 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
       status: status ?? this.status,
       statusComment: statusComment ?? this.statusComment,
       syncState: syncState ?? this.syncState,
+      cellCommentsJson: cellCommentsJson ?? this.cellCommentsJson,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
     );
@@ -719,6 +766,9 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
     if (syncState.present) {
       map['sync_state'] = Variable<String>(syncState.value);
     }
+    if (cellCommentsJson.present) {
+      map['cell_comments_json'] = Variable<String>(cellCommentsJson.value);
+    }
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
@@ -743,6 +793,7 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
           ..write('status: $status, ')
           ..write('statusComment: $statusComment, ')
           ..write('syncState: $syncState, ')
+          ..write('cellCommentsJson: $cellCommentsJson, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -2328,6 +2379,7 @@ typedef $$BillingLineRecordsTableCreateCompanionBuilder =
       Value<String> status,
       Value<String> statusComment,
       Value<String> syncState,
+      Value<String> cellCommentsJson,
       required DateTime updatedAt,
       Value<int> rowid,
     });
@@ -2345,6 +2397,7 @@ typedef $$BillingLineRecordsTableUpdateCompanionBuilder =
       Value<String> status,
       Value<String> statusComment,
       Value<String> syncState,
+      Value<String> cellCommentsJson,
       Value<DateTime> updatedAt,
       Value<int> rowid,
     });
@@ -2415,6 +2468,11 @@ class $$BillingLineRecordsTableFilterComposer
 
   ColumnFilters<String> get syncState => $composableBuilder(
     column: $table.syncState,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get cellCommentsJson => $composableBuilder(
+    column: $table.cellCommentsJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -2493,6 +2551,11 @@ class $$BillingLineRecordsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get cellCommentsJson => $composableBuilder(
+    column: $table.cellCommentsJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
@@ -2550,6 +2613,11 @@ class $$BillingLineRecordsTableAnnotationComposer
   GeneratedColumn<String> get syncState =>
       $composableBuilder(column: $table.syncState, builder: (column) => column);
 
+  GeneratedColumn<String> get cellCommentsJson => $composableBuilder(
+    column: $table.cellCommentsJson,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
 }
@@ -2606,6 +2674,7 @@ class $$BillingLineRecordsTableTableManager
                 Value<String> status = const Value.absent(),
                 Value<String> statusComment = const Value.absent(),
                 Value<String> syncState = const Value.absent(),
+                Value<String> cellCommentsJson = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => BillingLineRecordsCompanion(
@@ -2621,6 +2690,7 @@ class $$BillingLineRecordsTableTableManager
                 status: status,
                 statusComment: statusComment,
                 syncState: syncState,
+                cellCommentsJson: cellCommentsJson,
                 updatedAt: updatedAt,
                 rowid: rowid,
               ),
@@ -2638,6 +2708,7 @@ class $$BillingLineRecordsTableTableManager
                 Value<String> status = const Value.absent(),
                 Value<String> statusComment = const Value.absent(),
                 Value<String> syncState = const Value.absent(),
+                Value<String> cellCommentsJson = const Value.absent(),
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
               }) => BillingLineRecordsCompanion.insert(
@@ -2653,6 +2724,7 @@ class $$BillingLineRecordsTableTableManager
                 status: status,
                 statusComment: statusComment,
                 syncState: syncState,
+                cellCommentsJson: cellCommentsJson,
                 updatedAt: updatedAt,
                 rowid: rowid,
               ),

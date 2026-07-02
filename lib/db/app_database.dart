@@ -21,6 +21,7 @@ class BillingLineRecords extends Table {
   TextColumn get status => text().withDefault(const Constant('Actif'))();
   TextColumn get statusComment => text().withDefault(const Constant(''))();
   TextColumn get syncState => text().withDefault(const Constant('synced'))();
+  TextColumn get cellCommentsJson => text().withDefault(const Constant('{}'))();
   DateTimeColumn get updatedAt => dateTime()();
 
   @override
@@ -93,7 +94,19 @@ class AppDatabase extends _$AppDatabase {
       );
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(
+          billingLineRecords,
+          billingLineRecords.cellCommentsJson,
+        );
+      }
+    },
+  );
 
   Future<List<BillingLine>> loadBillingLines() async {
     final lineRows =
@@ -143,6 +156,7 @@ class AppDatabase extends _$AppDatabase {
           status: row.status,
           statusComment: row.statusComment,
           syncState: _syncStateFromName(row.syncState),
+          cellComments: _decodeCellComments(row.cellCommentsJson),
         ),
     ];
   }
@@ -176,6 +190,7 @@ class AppDatabase extends _$AppDatabase {
               status: Value(line.status),
               statusComment: Value(line.statusComment),
               syncState: Value(line.syncState.name),
+              cellCommentsJson: Value(jsonEncode(line.cellComments)),
               updatedAt: now,
             ),
           );
@@ -491,5 +506,21 @@ class AppDatabase extends _$AppDatabase {
       (state) => state.name == value,
       orElse: () => SyncState.synced,
     );
+  }
+
+  Map<String, String> _decodeCellComments(String value) {
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is! Map) return const <String, String>{};
+      return {
+        for (final entry in decoded.entries)
+          if (entry.key != null && entry.value != null)
+            '${entry.key}': '${entry.value}',
+      }..removeWhere(
+        (key, value) => key.trim().isEmpty || value.trim().isEmpty,
+      );
+    } on Object {
+      return const <String, String>{};
+    }
   }
 }
