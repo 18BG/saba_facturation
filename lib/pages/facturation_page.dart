@@ -23,9 +23,11 @@ class FacturationPage extends StatefulWidget {
     required this.pendingOutboxCount,
     required this.offline,
     required this.syncing,
+    required this.manualSaving,
     required this.remoteSyncConfigured,
     required this.onOfflineChanged,
     required this.onRetrySync,
+    required this.onSaveNow,
     required this.onOpenImport,
     required this.onOpenExport,
   });
@@ -39,9 +41,11 @@ class FacturationPage extends StatefulWidget {
   final int pendingOutboxCount;
   final bool offline;
   final bool syncing;
+  final bool manualSaving;
   final bool remoteSyncConfigured;
   final ValueChanged<bool> onOfflineChanged;
   final VoidCallback onRetrySync;
+  final Future<void> Function() onSaveNow;
   final VoidCallback onOpenImport;
   final VoidCallback onOpenExport;
 
@@ -358,6 +362,7 @@ class _FacturationPageState extends State<FacturationPage> {
           year: _year,
           offline: widget.offline,
           syncing: widget.syncing,
+          manualSaving: widget.manualSaving,
           pendingChanges: _pendingChanges,
           onYearChanged: (year) {
             setState(() => _year = year);
@@ -367,6 +372,7 @@ class _FacturationPageState extends State<FacturationPage> {
             widget.onOfflineChanged(value);
           },
           onQueryChanged: (value) => setState(() => _query = value),
+          onSaveNow: widget.onSaveNow,
         ),
         Expanded(
           child: Padding(
@@ -466,19 +472,23 @@ class _TopBar extends StatelessWidget {
     required this.year,
     required this.offline,
     required this.syncing,
+    required this.manualSaving,
     required this.pendingChanges,
     required this.onYearChanged,
     required this.onOfflineChanged,
     required this.onQueryChanged,
+    required this.onSaveNow,
   });
 
   final int year;
   final bool offline;
   final bool syncing;
+  final bool manualSaving;
   final int pendingChanges;
   final ValueChanged<int> onYearChanged;
   final ValueChanged<bool> onOfflineChanged;
   final ValueChanged<String> onQueryChanged;
+  final Future<void> Function() onSaveNow;
 
   @override
   Widget build(BuildContext context) {
@@ -527,6 +537,13 @@ class _TopBar extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
+              _SaveButton(
+                saving: manualSaving,
+                pendingChanges: pendingChanges,
+                onPressed: onSaveNow,
+                compact: compact,
+              ),
+              const SizedBox(width: 10),
               FilterChip(
                 selected: offline,
                 avatar: AppIcon(
@@ -550,6 +567,56 @@ class _TopBar extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _SaveButton extends StatelessWidget {
+  const _SaveButton({
+    required this.saving,
+    required this.pendingChanges,
+    required this.onPressed,
+    required this.compact,
+  });
+
+  final bool saving;
+  final int pendingChanges;
+  final Future<void> Function() onPressed;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPendingChanges = pendingChanges > 0;
+    final label = saving
+        ? 'Enregistrement...'
+        : hasPendingChanges
+        ? 'Enregistrer'
+        : 'Enregistre';
+    final icon = saving
+        ? const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : AppIcon(
+            hasPendingChanges ? AppIcons.sync : AppIcons.cloudDone,
+            size: 17,
+          );
+
+    if (compact) {
+      return Tooltip(
+        message: label,
+        child: IconButton(
+          onPressed: saving ? null : onPressed,
+          icon: icon,
+        ),
+      );
+    }
+
+    return OutlinedButton.icon(
+      onPressed: saving ? null : onPressed,
+      icon: icon,
+      label: Text(label),
     );
   }
 }
@@ -857,8 +924,8 @@ class _BillingGrid extends StatefulWidget {
     132,
     250,
     150,
-    112,
-    112,
+    144,
+    144,
     110,
     88,
     88,
@@ -1220,7 +1287,7 @@ class _GridRowState extends State<_GridRow> {
               'line.startDate',
               'Debut',
               _BillingGrid.widths[4],
-              EditableCell(
+              _DateCell(
                 value: line.startDate,
                 width: _BillingGrid.widths[4],
                 onChanged: (value) => onUpdate(line.copyWith(startDate: value)),
@@ -1230,7 +1297,7 @@ class _GridRowState extends State<_GridRow> {
               'line.endDate',
               'Fin',
               _BillingGrid.widths[5],
-              EditableCell(
+              _DateCell(
                 value: line.endDate,
                 width: _BillingGrid.widths[5],
                 onChanged: (value) => onUpdate(line.copyWith(endDate: value)),
@@ -1506,6 +1573,179 @@ class _DropdownCell extends StatelessWidget {
             if (next != null) onChanged(next);
           },
         ),
+      ),
+    );
+  }
+}
+
+class _DateCell extends StatefulWidget {
+  const _DateCell({
+    required this.value,
+    required this.width,
+    required this.onChanged,
+  });
+
+  final String value;
+  final double width;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<_DateCell> createState() => _DateCellState();
+}
+
+class _DateCellState extends State<_DateCell> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value);
+    _focusNode = FocusNode();
+    _focusNode.addListener(_handleFocusChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _DateCell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_focusNode.hasFocus) return;
+    _syncControllerText();
+  }
+
+  @override
+  void dispose() {
+    _focusNode.removeListener(_handleFocusChanged);
+    _focusNode.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleFocusChanged() {
+    if (!_focusNode.hasFocus) {
+      _syncControllerText();
+    }
+  }
+
+  void _syncControllerText() {
+    if (widget.value == _controller.text) return;
+    _controller.value = TextEditingValue(
+      text: widget.value,
+      selection: TextSelection.collapsed(offset: widget.value.length),
+    );
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final current = _parseDate(_controller.text);
+    final initialDate = current ?? DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(1990),
+      lastDate: DateTime(2100, 12, 31),
+    );
+    if (picked == null) return;
+
+    final value = _formatDate(picked);
+    _controller.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+    widget.onChanged(value);
+  }
+
+  DateTime? _parseDate(String value) {
+    final text = value.trim();
+    if (text.isEmpty) return null;
+
+    final iso = DateTime.tryParse(text);
+    if (iso != null) {
+      final candidate = DateTime(iso.year, iso.month, iso.day);
+      return _isAllowedDate(candidate) ? candidate : null;
+    }
+
+    final match = RegExp(r'^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$')
+        .firstMatch(text);
+    if (match == null) return null;
+
+    final day = int.tryParse(match.group(1)!);
+    final month = int.tryParse(match.group(2)!);
+    final rawYear = int.tryParse(match.group(3)!);
+    if (day == null || month == null || rawYear == null) return null;
+
+    final year = rawYear < 100 ? 2000 + rawYear : rawYear;
+    if (year < 1990 || year > 2100 || month < 1 || month > 12) return null;
+
+    final candidate = DateTime(year, month, day);
+    if (candidate.year != year ||
+        candidate.month != month ||
+        candidate.day != day) {
+      return null;
+    }
+    return _isAllowedDate(candidate) ? candidate : null;
+  }
+
+  bool _isAllowedDate(DateTime date) {
+    return !date.isBefore(DateTime(1990)) &&
+        !date.isAfter(DateTime(2100, 12, 31));
+  }
+
+  String _formatDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    return '$day/$month/${date.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: widget.width,
+      child: TextField(
+        controller: _controller,
+        focusNode: _focusNode,
+        keyboardType: TextInputType.datetime,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+          color: Color(0xFF111827),
+        ),
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 9,
+          ),
+          suffixIcon: Tooltip(
+            message: 'Choisir une date',
+            child: IconButton(
+              onPressed: _pickDate,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(
+                width: 30,
+                height: 30,
+              ),
+              icon: const Icon(Icons.calendar_today_outlined, size: 16),
+            ),
+          ),
+          suffixIconConstraints: const BoxConstraints.tightFor(
+            width: 34,
+            height: 32,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(4),
+            borderSide: const BorderSide(color: Color(0xFFE1E7EF)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(4),
+            borderSide: const BorderSide(color: Color(0xFFE1E7EF)),
+          ),
+        ),
+        onChanged: (value) {
+          setState(() {});
+          widget.onChanged(value);
+        },
       ),
     );
   }

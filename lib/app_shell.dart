@@ -52,6 +52,7 @@ class _AppShellState extends State<AppShell> {
   int _pendingOutboxCount = 0;
   bool _offline = false;
   bool _isSyncing = false;
+  bool _manualSaving = false;
   bool _navigationCollapsed = false;
   late final RemoteSyncClient _remoteSyncClient;
   Timer? _persistTimer;
@@ -235,6 +236,49 @@ class _AppShellState extends State<AppShell> {
         _startupWarning =
             'La reinitialisation distante a echoue. Detail : $error';
       });
+    }
+  }
+
+  Future<void> _saveNow() async {
+    if (_manualSaving) return;
+
+    _persistTimer?.cancel();
+    _syncTimer?.cancel();
+    setState(() => _manualSaving = true);
+
+    try {
+      await _persistLines(List<BillingLine>.of(_lines));
+      await _refreshPendingOutboxCount();
+
+      if (_offline) {
+        if (!mounted) return;
+        setState(() {
+          _syncInfo =
+              'Enregistre sur cet ordinateur. La synchronisation reprendra au retour en ligne.';
+        });
+        return;
+      }
+
+      if (!_remoteSyncClient.isConfigured) {
+        if (!mounted) return;
+        setState(() {
+          _syncInfo =
+              'Enregistre sur cet ordinateur. La base distante n est pas configuree.';
+        });
+        return;
+      }
+
+      await _flushSyncOutbox();
+      await _refreshPendingOutboxCount();
+      if (!mounted) return;
+
+      setState(() {
+        _syncInfo = _pendingOutboxCount == 0
+            ? 'Enregistrement confirme.'
+            : 'Enregistre localement. ${_pendingOutboxCount} modification(s) restent en attente.';
+      });
+    } finally {
+      if (mounted) setState(() => _manualSaving = false);
     }
   }
 
@@ -471,9 +515,11 @@ class _AppShellState extends State<AppShell> {
       pendingOutboxCount: _pendingOutboxCount,
       offline: _offline,
       syncing: _isSyncing,
+      manualSaving: _manualSaving,
       remoteSyncConfigured: _remoteSyncClient.isConfigured,
       onOfflineChanged: _setOffline,
       onRetrySync: _retrySyncNow,
+      onSaveNow: _saveNow,
       onOpenImport: () => setState(() => _selectedIndex = 2),
       onOpenExport: () => setState(() => _selectedIndex = 3),
     );
