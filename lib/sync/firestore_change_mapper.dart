@@ -118,6 +118,9 @@ class FirestoreChangeMapper {
   Map<String, Object?> _lineSnapshotData(Object? value) {
     final raw = value is Map ? value : const <Object?, Object?>{};
     return {
+      'odooId': raw['odooId'] ?? raw['clientOdooId'],
+      'appellationComptable':
+          raw['appellationComptable'] ?? raw['clientOdooName'],
       'reference': raw['reference'],
       'name': raw['name'],
       'activity': raw['activity'],

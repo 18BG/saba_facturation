@@ -104,6 +104,8 @@ class AnnualBillingData {
 class BillingLine {
   BillingLine({
     String? id,
+    String? odooId,
+    String? appellationComptable,
     required this.reference,
     required this.name,
     required this.activity,
@@ -118,6 +120,8 @@ class BillingLine {
     required this.syncState,
     Map<String, String>? cellComments,
   }) : id = id == null || id.trim().isEmpty ? newBillingLineId() : id,
+       odooId = (odooId ?? '').trim(),
+       appellationComptable = (appellationComptable ?? '').trim(),
        cellComments = Map.unmodifiable(
          Map<String, String>.of(cellComments ?? const <String, String>{})
            ..removeWhere((key, value) => value.trim().isEmpty),
@@ -128,6 +132,12 @@ class BillingLine {
         json['annualBillings'] as Map<String, dynamic>? ?? const {};
     return BillingLine(
       id: json['id'] as String?,
+      odooId: _stringValue(json['odooId'] ?? json['clientOdooId']),
+      appellationComptable: _stringValue(
+        json['appellationComptable'] ??
+            json['Appellation comptable'] ??
+            json['clientOdooName'],
+      ),
       reference: json['reference'] as String? ?? '',
       name: json['name'] as String? ?? '',
       activity: json['activity'] as String? ?? 'GARDIENNAGE',
@@ -150,6 +160,8 @@ class BillingLine {
   }
 
   final String id;
+  final String odooId;
+  final String appellationComptable;
   final String reference;
   final String name;
   final String activity;
@@ -217,6 +229,8 @@ class BillingLine {
 
   BillingLine copyWith({
     String? id,
+    String? odooId,
+    String? appellationComptable,
     String? reference,
     String? name,
     String? activity,
@@ -233,6 +247,8 @@ class BillingLine {
   }) {
     return BillingLine(
       id: id ?? this.id,
+      odooId: odooId ?? this.odooId,
+      appellationComptable: appellationComptable ?? this.appellationComptable,
       reference: reference ?? this.reference,
       name: name ?? this.name,
       activity: activity ?? this.activity,
@@ -252,6 +268,8 @@ class BillingLine {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      'odooId': odooId,
+      'appellationComptable': appellationComptable,
       'reference': reference,
       'name': name,
       'activity': activity,
@@ -333,6 +351,10 @@ int _toInt(Object? value) {
     final String text => int.tryParse(text) ?? 0,
     _ => 0,
   };
+}
+
+String _stringValue(Object? value) {
+  return value is String ? value : value?.toString() ?? '';
 }
 
 SyncState _syncStateFromName(String? value) {

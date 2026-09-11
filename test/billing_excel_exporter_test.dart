@@ -11,6 +11,8 @@ void main() {
       final bytes = exporter.exportLines(
         [
           BillingLine(
+            odooId: '1867',
+            appellationComptable: 'DOMICILE AMINATA',
             reference: 'REF-001',
             name: 'Client A',
             activity: 'GARDIENNAGE',
@@ -65,9 +67,12 @@ void main() {
 
       expect(sheet, isNotNull);
       expect(sheet!.rows.length, 2);
-      expect(sheet.rows[0][0]?.value.toString(), 'Reference');
-      expect(sheet.rows[1][0]?.value.toString(), 'REF-001');
-      expect(sheet.rows[1][1]?.value.toString(), 'Client A');
+      expect(sheet.rows[0][0]?.value.toString(), 'Reference Odoo');
+      expect(sheet.rows[0][1]?.value.toString(), 'Appellation comptable');
+      expect(sheet.rows[1][0]?.value.toString(), '1867');
+      expect(sheet.rows[1][1]?.value.toString(), 'DOMICILE AMINATA');
+      expect(sheet.rows[1][2]?.value.toString(), 'REF-001');
+      expect(sheet.rows[1][3]?.value.toString(), 'Client A');
       expect(
         sheet.rows.any(
           (row) => row.isNotEmpty && row[0]?.value.toString() == 'TOTAUX',
@@ -107,9 +112,9 @@ void main() {
     final alerts = workbook.tables['Alertes'];
 
     expect(alerts, isNotNull);
-    expect(alerts!.rows.first[3]?.value.toString(), 'Alerte');
+    expect(alerts!.rows.first[5]?.value.toString(), 'Alerte');
     expect(
-      alerts.rows.skip(1).map((row) => row[3]?.value.toString()).toList(),
+      alerts.rows.skip(1).map((row) => row[5]?.value.toString()).toList(),
       contains('Reference comptable manquante.'),
     );
   });
@@ -162,9 +167,10 @@ void main() {
       final sheet = workbook.tables['Facturation 2026']!;
 
       expect(sheet.rows.length, 3);
-      expect(sheet.rows[1][0]?.value.toString(), 'REF-001');
-      expect(sheet.rows[2][0]?.value.toString(), 'REF-002');
-      expect(sheet.rows[2][8]?.value.toString(), 'Desactive');
+      expect(sheet.rows[1][0]?.value.toString(), '');
+      expect(sheet.rows[1][2]?.value.toString(), 'REF-001');
+      expect(sheet.rows[2][2]?.value.toString(), 'REF-002');
+      expect(sheet.rows[2][10]?.value.toString(), 'Desactive');
       expect(
         sheet.rows.any(
           (row) => row.isNotEmpty && row[0]?.value.toString() == 'TOTAUX',

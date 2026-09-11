@@ -16,6 +16,7 @@ import 'sync/persistent_sync_engine.dart';
 import 'sync/remote_sync_client.dart';
 import 'sync/remote_line_merge.dart';
 import 'theme/app_icons.dart';
+import 'utils/billing_reference.dart';
 import 'widgets/app_dialog.dart';
 import 'widgets/app_icon.dart';
 import 'widgets/brand_logo.dart';
@@ -151,15 +152,18 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _persistLines(List<BillingLine> lines) async {
-    await _enqueueLocalWrite(() async {
-      await _localStore?.saveLines(lines);
-    }, (error) {
-      if (!mounted) return;
-      setState(() {
-        _startupWarning =
-            'Les donnees sont gardees en memoire, mais la sauvegarde locale a echoue. Detail : $error';
-      });
-    });
+    await _enqueueLocalWrite(
+      () async {
+        await _localStore?.saveLines(lines);
+      },
+      (error) {
+        if (!mounted) return;
+        setState(() {
+          _startupWarning =
+              'Les donnees sont gardees en memoire, mais la sauvegarde locale a echoue. Detail : $error';
+        });
+      },
+    );
   }
 
   void _savePendingChanges(List<PendingChange> changes) {
@@ -169,17 +173,20 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _persistPendingChanges(List<PendingChange> changes) async {
-    await _enqueueLocalWrite(() async {
-      await _localStore?.enqueuePendingChanges(changes);
-      await _refreshPendingOutboxCount();
-      _queueSyncAttempt();
-    }, (error) {
-      if (!mounted) return;
-      setState(() {
-        _startupWarning =
-            'La modification est visible, mais la file de sync locale n a pas pu etre mise a jour. Detail : $error';
-      });
-    });
+    await _enqueueLocalWrite(
+      () async {
+        await _localStore?.enqueuePendingChanges(changes);
+        await _refreshPendingOutboxCount();
+        _queueSyncAttempt();
+      },
+      (error) {
+        if (!mounted) return;
+        setState(() {
+          _startupWarning =
+              'La modification est visible, mais la file de sync locale n a pas pu etre mise a jour. Detail : $error';
+        });
+      },
+    );
   }
 
   Future<void> _resetLocalData() async {
@@ -275,7 +282,7 @@ class _AppShellState extends State<AppShell> {
       setState(() {
         _syncInfo = _pendingOutboxCount == 0
             ? 'Enregistrement confirme.'
-            : 'Enregistre localement. ${_pendingOutboxCount} modification(s) restent en attente.';
+            : 'Enregistre localement. $_pendingOutboxCount modification(s) restent en attente.';
       });
     } finally {
       if (mounted) setState(() => _manualSaving = false);
@@ -459,19 +466,93 @@ class _AppShellState extends State<AppShell> {
     List<BillingLine> imported,
     ImportApplyMode mode,
   ) async {
+    final preparedImported = _prepareImportedLines(imported, mode);
     final nextLines = switch (mode) {
-      ImportApplyMode.append => <BillingLine>[..._lines, ...imported],
-      ImportApplyMode.replace => List<BillingLine>.of(imported),
+      ImportApplyMode.append => <BillingLine>[..._lines, ...preparedImported],
+      ImportApplyMode.replace => List<BillingLine>.of(preparedImported),
     };
 
     _persistTimer?.cancel();
     setState(() => _lines = List<BillingLine>.of(nextLines));
     await _persistLines(nextLines);
     _savePendingChanges(
-      buildBillingLineSnapshotChanges(imported, year: _selectedYear),
+      buildBillingLineSnapshotChanges(preparedImported, year: _selectedYear),
     );
     if (!mounted) return;
     setState(() => _selectedIndex = 0);
+  }
+
+  List<BillingLine> _prepareImportedLines(
+    List<BillingLine> imported,
+    ImportApplyMode mode,
+  ) {
+    final existing = mode == ImportApplyMode.append
+        ? List<BillingLine>.of(_lines)
+        : <BillingLine>[];
+    final appellationByOdooId = <String, String>{
+      for (final line in existing)
+        if (line.odooId.trim().isNotEmpty &&
+            line.appellationComptable.trim().isNotEmpty)
+          line.odooId.trim(): line.appellationComptable.trim(),
+    };
+    final usedReferences = <String>{
+      for (final line in existing)
+        if (line.reference.trim().isNotEmpty)
+          line.reference.trim().toUpperCase(),
+    };
+    final prepared = <BillingLine>[];
+
+    for (final importedLine in imported) {
+      final odooId = importedLine.odooId.trim();
+      var reference = importedLine.reference.trim();
+      final normalizedReference = reference.toUpperCase();
+      final hasCollision =
+          normalizedReference.isNotEmpty &&
+          usedReferences.contains(normalizedReference);
+      final mustGenerate =
+          odooId.isNotEmpty &&
+          (reference.isEmpty ||
+              hasCollision ||
+              !isGeneratedBillingReference(reference, odooId));
+
+      if (mustGenerate) {
+        reference = _nextAvailableImportedReference(odooId, [
+          ...existing,
+          ...prepared,
+        ], usedReferences);
+      }
+
+      final preparedLine = importedLine.copyWith(
+        odooId: odooId,
+        appellationComptable: odooId.isEmpty
+            ? ''
+            : (appellationByOdooId[odooId] ??
+                  importedLine.appellationComptable.trim()),
+        reference: reference,
+      );
+      prepared.add(preparedLine);
+      if (odooId.isNotEmpty &&
+          preparedLine.appellationComptable.trim().isNotEmpty) {
+        appellationByOdooId[odooId] = preparedLine.appellationComptable.trim();
+      }
+      if (reference.isNotEmpty) usedReferences.add(reference.toUpperCase());
+    }
+
+    return prepared;
+  }
+
+  String _nextAvailableImportedReference(
+    String odooId,
+    Iterable<BillingLine> lines,
+    Set<String> usedReferences,
+  ) {
+    var candidate = nextBillingReference(odooId, lines);
+    final normalizedOdooId = odooId.trim();
+    var suffix = 1;
+    while (usedReferences.contains(candidate.toUpperCase())) {
+      candidate = '$normalizedOdooId-${suffix++}';
+    }
+    return candidate;
   }
 
   void _deleteLine(BillingLine line) {

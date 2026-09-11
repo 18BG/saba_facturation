@@ -4,6 +4,7 @@ import '../models/billing_line.dart';
 import '../models/billing_years.dart';
 import '../sync/pending_change.dart';
 import '../theme/app_icons.dart';
+import '../utils/billing_reference.dart';
 import '../validation/billing_validation.dart';
 import '../widgets/app_dialog.dart';
 import '../widgets/app_icon.dart';
@@ -110,7 +111,9 @@ class _FacturationPageState extends State<FacturationPage> {
     return _lines.where((line) {
       final matchesQuery =
           q.isEmpty ||
+          line.odooId.toLowerCase().contains(q) ||
           line.reference.toLowerCase().contains(q) ||
+          line.appellationComptable.toLowerCase().contains(q) ||
           line.name.toLowerCase().contains(q) ||
           line.activity.toLowerCase().contains(q);
       final matchesActivity =
@@ -170,12 +173,35 @@ class _FacturationPageState extends State<FacturationPage> {
   }
 
   void _updateLine(BillingLine oldLine, BillingLine newLine) {
+    var effectiveNewLine = newLine;
+    if (oldLine.odooId.trim() != newLine.odooId.trim()) {
+      final nextOdooId = newLine.odooId.trim();
+      final knownAppellation = _lines
+          .where(
+            (line) => line.id != oldLine.id && line.odooId.trim() == nextOdooId,
+          )
+          .map((line) => line.appellationComptable.trim())
+          .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+      effectiveNewLine = newLine.copyWith(
+        odooId: nextOdooId,
+        appellationComptable: nextOdooId.isEmpty ? '' : knownAppellation,
+        reference: nextOdooId.isEmpty
+            ? (isGeneratedBillingReference(newLine.reference, oldLine.odooId)
+                  ? ''
+                  : newLine.reference)
+            : nextBillingReference(
+                nextOdooId,
+                _lines,
+                excludingLineId: oldLine.id,
+              ),
+      );
+    }
     var pendingChanges = <PendingChange>[];
     setState(() {
       final index = _lines.indexOf(oldLine);
       if (index == -1) return;
-      pendingChanges = _enqueueDiffs(oldLine, newLine);
-      final updated = newLine.copyWith(
+      pendingChanges = _enqueueDiffs(oldLine, effectiveNewLine);
+      final updated = effectiveNewLine.copyWith(
         syncState: widget.offline || !widget.remoteSyncConfigured
             ? SyncState.dirty
             : SyncState.syncing,
@@ -208,6 +234,12 @@ class _FacturationPageState extends State<FacturationPage> {
       changes.add(change);
     }
 
+    enqueueLineField('odooId', oldLine.odooId, newLine.odooId);
+    enqueueLineField(
+      'appellationComptable',
+      oldLine.appellationComptable,
+      newLine.appellationComptable,
+    );
     enqueueLineField('reference', oldLine.reference, newLine.reference);
     enqueueLineField('name', oldLine.name, newLine.name);
     enqueueLineField('activity', oldLine.activity, newLine.activity);
@@ -305,6 +337,7 @@ class _FacturationPageState extends State<FacturationPage> {
 
   void _addLine() {
     final line = BillingLine(
+      odooId: '',
       reference: '',
       name: '',
       activity: 'GARDIENNAGE',
@@ -606,10 +639,7 @@ class _SaveButton extends StatelessWidget {
     if (compact) {
       return Tooltip(
         message: label,
-        child: IconButton(
-          onPressed: saving ? null : onPressed,
-          icon: icon,
-        ),
+        child: IconButton(onPressed: saving ? null : onPressed, icon: icon),
       );
     }
 
@@ -921,6 +951,8 @@ class _BillingGrid extends StatefulWidget {
 
   static const widths = <double>[
     100,
+    126,
+    220,
     132,
     250,
     150,
@@ -1068,6 +1100,8 @@ class _GridHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final labels = [
       'Actions',
+      'Reference Odoo',
+      'Appellation comptable',
       'Reference',
       'Nom / Site',
       'Activite',
@@ -1247,12 +1281,43 @@ class _GridRowState extends State<_GridRow> {
               ),
             ),
             commentable(
-              'line.reference',
-              'Reference',
+              'line.odooId',
+              'Reference Odoo',
               _BillingGrid.widths[1],
               EditableCell(
-                value: line.reference,
+                value: line.odooId,
                 width: _BillingGrid.widths[1],
+                onChanged: (value) => onUpdate(line.copyWith(odooId: value)),
+              ),
+            ),
+            commentable(
+              'line.appellationComptable',
+              'Appellation comptable',
+              _BillingGrid.widths[2],
+              Container(
+                width: _BillingGrid.widths[2],
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  line.appellationComptable,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+              ),
+            ),
+            commentable(
+              'line.reference',
+              'Reference',
+              _BillingGrid.widths[3],
+              EditableCell(
+                value: line.reference,
+                width: _BillingGrid.widths[3],
+                readOnly: line.odooId.trim().isNotEmpty,
                 isRequired: true,
                 hasError: hasDuplicateReference,
                 errorMessage: hasDuplicateReference
@@ -1264,10 +1329,10 @@ class _GridRowState extends State<_GridRow> {
             commentable(
               'line.name',
               'Nom / Site',
-              _BillingGrid.widths[2],
+              _BillingGrid.widths[4],
               EditableCell(
                 value: line.name,
-                width: _BillingGrid.widths[2],
+                width: _BillingGrid.widths[4],
                 isRequired: true,
                 onChanged: (value) => onUpdate(line.copyWith(name: value)),
               ),
@@ -1275,41 +1340,41 @@ class _GridRowState extends State<_GridRow> {
             commentable(
               'line.activity',
               'Activite',
-              _BillingGrid.widths[3],
+              _BillingGrid.widths[5],
               _DropdownCell(
                 value: line.activity,
                 values: activities,
-                width: _BillingGrid.widths[3],
+                width: _BillingGrid.widths[5],
                 onChanged: (value) => onUpdate(line.copyWith(activity: value)),
               ),
             ),
             commentable(
               'line.startDate',
               'Debut',
-              _BillingGrid.widths[4],
+              _BillingGrid.widths[6],
               _DateCell(
                 value: line.startDate,
-                width: _BillingGrid.widths[4],
+                width: _BillingGrid.widths[6],
                 onChanged: (value) => onUpdate(line.copyWith(startDate: value)),
               ),
             ),
             commentable(
               'line.endDate',
               'Fin',
-              _BillingGrid.widths[5],
+              _BillingGrid.widths[7],
               _DateCell(
                 value: line.endDate,
-                width: _BillingGrid.widths[5],
+                width: _BillingGrid.widths[7],
                 onChanged: (value) => onUpdate(line.copyWith(endDate: value)),
               ),
             ),
             commentable(
               'line.contractNature',
               'Nature',
-              _BillingGrid.widths[6],
+              _BillingGrid.widths[8],
               EditableCell(
                 value: line.contractNature,
-                width: _BillingGrid.widths[6],
+                width: _BillingGrid.widths[8],
                 onChanged: (value) =>
                     onUpdate(line.copyWith(contractNature: value)),
               ),
@@ -1317,10 +1382,10 @@ class _GridRowState extends State<_GridRow> {
             commentable(
               'line.billedStaff',
               'Eff facture',
-              _BillingGrid.widths[7],
+              _BillingGrid.widths[9],
               EditableCell(
                 value: '${line.billedStaff}',
-                width: _BillingGrid.widths[7],
+                width: _BillingGrid.widths[9],
                 textAlign: TextAlign.right,
                 onChanged: (value) =>
                     onUpdate(line.copyWith(billedStaff: _parseInt(value))),
@@ -1329,10 +1394,10 @@ class _GridRowState extends State<_GridRow> {
             commentable(
               'line.paidStaff',
               'Eff paye',
-              _BillingGrid.widths[8],
+              _BillingGrid.widths[10],
               EditableCell(
                 value: '${line.paidStaff}',
-                width: _BillingGrid.widths[8],
+                width: _BillingGrid.widths[10],
                 textAlign: TextAlign.right,
                 onChanged: (value) =>
                     onUpdate(line.copyWith(paidStaff: _parseInt(value))),
@@ -1341,10 +1406,10 @@ class _GridRowState extends State<_GridRow> {
             commentable(
               'annual.$selectedYear.monthlyRate',
               'Tarif/mois',
-              _BillingGrid.widths[9],
+              _BillingGrid.widths[11],
               EditableCell(
                 value: _number(annual.monthlyRate),
-                width: _BillingGrid.widths[9],
+                width: _BillingGrid.widths[11],
                 textAlign: TextAlign.right,
                 onChanged: (value) {
                   onUpdate(
@@ -1360,10 +1425,10 @@ class _GridRowState extends State<_GridRow> {
               commentable(
                 'annual.$selectedYear.${months[i]}',
                 months[i],
-                _BillingGrid.widths[10 + i],
+                _BillingGrid.widths[12 + i],
                 EditableCell(
                   value: _number(annual.payments[months[i]] ?? 0),
-                  width: _BillingGrid.widths[10 + i],
+                  width: _BillingGrid.widths[12 + i],
                   textAlign: TextAlign.right,
                   onChanged: (value) {
                     final next = Map<String, double>.of(annual.payments);
@@ -1380,16 +1445,16 @@ class _GridRowState extends State<_GridRow> {
             commentable(
               'line.status',
               'Statut',
-              _BillingGrid.widths[22],
+              _BillingGrid.widths[24],
               _DropdownCell(
                 value: line.status,
                 values: statuses,
-                width: _BillingGrid.widths[22],
+                width: _BillingGrid.widths[24],
                 onChanged: (value) => onUpdate(line.copyWith(status: value)),
               ),
             ),
             SizedBox(
-              width: _BillingGrid.widths[23],
+              width: _BillingGrid.widths[25],
               child: Center(child: SyncBadge(state: line.syncState)),
             ),
           ],
@@ -1664,8 +1729,9 @@ class _DateCellState extends State<_DateCell> {
       return _isAllowedDate(candidate) ? candidate : null;
     }
 
-    final match = RegExp(r'^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$')
-        .firstMatch(text);
+    final match = RegExp(
+      r'^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$',
+    ).firstMatch(text);
     if (match == null) return null;
 
     final day = int.tryParse(match.group(1)!);
@@ -1722,10 +1788,7 @@ class _DateCellState extends State<_DateCell> {
             child: IconButton(
               onPressed: _pickDate,
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(
-                width: 30,
-                height: 30,
-              ),
+              constraints: const BoxConstraints.tightFor(width: 30, height: 30),
               icon: const Icon(Icons.calendar_today_outlined, size: 16),
             ),
           ),
@@ -1827,8 +1890,25 @@ class _LineDetailPanel extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
+              line.odooId.isEmpty
+                  ? 'Reference Odoo manquante'
+                  : 'Reference Odoo : ${line.odooId}',
+              style: const TextStyle(color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 6),
+            Text(
               line.reference.isEmpty ? 'Reference manquante' : line.reference,
             ),
+            if (line.appellationComptable.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                line.appellationComptable,
+                style: const TextStyle(
+                  color: Color(0xFF334155),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
             const SizedBox(height: 6),
             Text(
               line.name,

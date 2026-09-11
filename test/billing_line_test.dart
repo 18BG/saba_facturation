@@ -40,6 +40,8 @@ void main() {
 
   test('round-trips billing lines through json', () {
     final line = BillingLine(
+      odooId: '1867',
+      appellationComptable: 'DOMICILE AMINATA',
       reference: 'FAC-JSON',
       name: 'Client JSON',
       activity: 'NETTOYAGE',
@@ -64,6 +66,8 @@ void main() {
     final restored = BillingLine.fromJson(line.toJson());
 
     expect(restored.id, line.id);
+    expect(restored.odooId, '1867');
+    expect(restored.appellationComptable, 'DOMICILE AMINATA');
     expect(restored.reference, line.reference);
     expect(restored.name, line.name);
     expect(restored.annualBilling(2026).monthlyRate, 25000);

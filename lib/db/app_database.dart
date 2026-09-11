@@ -10,6 +10,9 @@ part 'app_database.g.dart';
 
 class BillingLineRecords extends Table {
   TextColumn get localId => text()();
+  TextColumn get odooId => text().withDefault(const Constant(''))();
+  TextColumn get appellationComptable =>
+      text().withDefault(const Constant(''))();
   TextColumn get reference => text().withDefault(const Constant(''))();
   TextColumn get name => text().withDefault(const Constant(''))();
   TextColumn get activity => text().withDefault(const Constant(''))();
@@ -94,7 +97,7 @@ class AppDatabase extends _$AppDatabase {
       );
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -103,6 +106,15 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(
           billingLineRecords,
           billingLineRecords.cellCommentsJson,
+        );
+      }
+      if (from < 3) {
+        await m.addColumn(billingLineRecords, billingLineRecords.odooId);
+      }
+      if (from < 4) {
+        await m.addColumn(
+          billingLineRecords,
+          billingLineRecords.appellationComptable,
         );
       }
     },
@@ -133,6 +145,8 @@ class AppDatabase extends _$AppDatabase {
       for (final row in lineRows)
         BillingLine(
           id: row.localId,
+          odooId: row.odooId,
+          appellationComptable: row.appellationComptable,
           reference: row.reference,
           name: row.name,
           activity: row.activity,
@@ -179,6 +193,8 @@ class AppDatabase extends _$AppDatabase {
             billingLineRecords,
             BillingLineRecordsCompanion.insert(
               localId: lineId,
+              odooId: Value(line.odooId),
+              appellationComptable: Value(line.appellationComptable),
               reference: Value(line.reference),
               name: Value(line.name),
               activity: Value(line.activity),
