@@ -105,9 +105,8 @@ class _FacturationPageState extends State<FacturationPage> {
     });
   }
 
-  List<BillingLine> get _filteredLines {
+  List<BillingLine> _filterLines(Set<String> duplicateReferences) {
     final q = _query.trim().toLowerCase();
-    final duplicateReferences = _duplicateReferences;
     return _lines.where((line) {
       final matchesQuery =
           q.isEmpty ||
@@ -120,10 +119,14 @@ class _FacturationPageState extends State<FacturationPage> {
           _activityFilter == 'Toutes' || line.activity == _activityFilter;
       final matchesStatus =
           _statusFilter == 'Tous' || line.status == _statusFilter;
-      final hasIssue =
-          duplicateReferences.contains(line.reference.trim().toUpperCase()) ||
-          billingLineIssues(line, year: _year).isNotEmpty;
-      final matchesIncomplete = !_onlyIncomplete || hasIssue;
+      final matchesIncomplete =
+          !_onlyIncomplete ||
+          billingLineNeedsReview(
+            line,
+            duplicate: duplicateReferences.contains(
+              line.reference.trim().toUpperCase(),
+            ),
+          );
       return matchesQuery &&
           matchesActivity &&
           matchesStatus &&
@@ -140,18 +143,6 @@ class _FacturationPageState extends State<FacturationPage> {
         : lineLevelPending;
   }
 
-  int get _billedStaffTotal {
-    return linesCountedInBillingTotals(
-      _filteredLines,
-    ).fold<int>(0, (sum, line) => sum + line.billedStaff);
-  }
-
-  int get _paidStaffTotal {
-    return linesCountedInBillingTotals(
-      _filteredLines,
-    ).fold<int>(0, (sum, line) => sum + line.paidStaff);
-  }
-
   Set<String> get _duplicateReferences {
     final counts = <String, int>{};
     for (final line in _lines) {
@@ -163,13 +154,6 @@ class _FacturationPageState extends State<FacturationPage> {
       for (final entry in counts.entries)
         if (entry.value > 1) entry.key,
     };
-  }
-
-  int get _commentCount {
-    return _filteredLines.fold<int>(
-      0,
-      (sum, line) => sum + line.cellComments.length,
-    );
   }
 
   void _updateLine(BillingLine oldLine, BillingLine newLine) {
@@ -386,7 +370,21 @@ class _FacturationPageState extends State<FacturationPage> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _filteredLines;
+    final duplicateReferences = _duplicateReferences;
+    final filtered = _filterLines(duplicateReferences);
+    final countedFiltered = linesCountedInBillingTotals(filtered);
+    final billedStaffTotal = countedFiltered.fold<int>(
+      0,
+      (sum, line) => sum + line.billedStaff,
+    );
+    final paidStaffTotal = countedFiltered.fold<int>(
+      0,
+      (sum, line) => sum + line.paidStaff,
+    );
+    final commentCount = filtered.fold<int>(
+      0,
+      (sum, line) => sum + line.cellComments.length,
+    );
     final validation = validateBillingLines(_lines, year: _year);
 
     return Column(
@@ -414,8 +412,8 @@ class _FacturationPageState extends State<FacturationPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
-                  child: Column(
-                    children: [
+          child: Column(
+            children: [
                       _FilterBar(
                         activityFilter: _activityFilter,
                         statusFilter: _statusFilter,
@@ -430,21 +428,21 @@ class _FacturationPageState extends State<FacturationPage> {
                         onImport: widget.onOpenImport,
                         onExport: widget.onOpenExport,
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       _SummaryStrip(
                         lineCount: filtered.length,
-                        billedStaff: _billedStaffTotal,
-                        paidStaff: _paidStaffTotal,
-                        commentCount: _commentCount,
+                        billedStaff: billedStaffTotal,
+                        paidStaff: paidStaffTotal,
+                        commentCount: commentCount,
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       _ValidationStrip(summary: validation),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       Expanded(
                         child: _BillingGrid(
                           lines: filtered,
                           selectedYear: _year,
-                          duplicateReferences: _duplicateReferences,
+                          duplicateReferences: duplicateReferences,
                           selectedLine: _selectedLine,
                           onSelectLine: (line) =>
                               setState(() => _selectedLine = line),
@@ -475,7 +473,7 @@ class _FacturationPageState extends State<FacturationPage> {
                               child: _LineDetailPanel(
                                 line: _selectedLine!,
                                 selectedYear: _year,
-                                duplicateReference: _duplicateReferences
+                                duplicateReference: duplicateReferences
                                     .contains(
                                       _selectedLine!.reference
                                           .trim()
@@ -796,28 +794,24 @@ class _SummaryStrip extends StatelessWidget {
             label: 'Lignes',
             value: '$lineCount',
             icon: AppIcons.lines,
-            caption: 'vue filtrée',
           ),
           const SizedBox(width: 8),
           MetricTile(
             label: 'Eff facture',
             value: '$billedStaff',
             icon: AppIcons.staff,
-            caption: 'vue filtrée',
           ),
           const SizedBox(width: 8),
           MetricTile(
             label: 'Eff paye',
             value: '$paidStaff',
             icon: AppIcons.badge,
-            caption: 'vue filtrée',
           ),
           const SizedBox(width: 8),
           MetricTile(
             label: 'Commentaires',
             value: '$commentCount',
             icon: AppIcons.edit,
-            caption: 'vue filtrée',
             color: commentCount > 0
                 ? const Color(0xFFB45309)
                 : const Color(0xFF15803D),
@@ -984,17 +978,38 @@ class _BillingGrid extends StatefulWidget {
 
 class _BillingGridState extends State<_BillingGrid> {
   late final ScrollController _horizontalController;
+  late final ScrollController _verticalController;
+  late final ScrollController _rowNumberController;
 
   @override
   void initState() {
     super.initState();
     _horizontalController = ScrollController();
+    _verticalController = ScrollController();
+    _rowNumberController = ScrollController();
+    _verticalController.addListener(_syncRowNumbers);
   }
 
   @override
   void dispose() {
+    _verticalController.removeListener(_syncRowNumbers);
     _horizontalController.dispose();
+    _verticalController.dispose();
+    _rowNumberController.dispose();
     super.dispose();
+  }
+
+  void _syncRowNumbers() {
+    if (!_rowNumberController.hasClients || !_verticalController.hasClients) {
+      return;
+    }
+    final target = _verticalController.offset.clamp(
+      0.0,
+      _rowNumberController.position.maxScrollExtent,
+    );
+    if ((_rowNumberController.offset - target).abs() > 0.5) {
+      _rowNumberController.jumpTo(target);
+    }
   }
 
   @override
@@ -1006,48 +1021,149 @@ class _BillingGridState extends State<_BillingGrid> {
         border: Border.all(color: const Color(0xFFE1E7EF)),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Scrollbar(
-        controller: _horizontalController,
-        thumbVisibility: true,
-        child: SingleChildScrollView(
-          controller: _horizontalController,
-          scrollDirection: Axis.horizontal,
-          child: SizedBox(
-            width: _BillingGrid.widths.fold<double>(
-              0,
-              (sum, width) => sum + width,
-            ),
-            child: Column(
-              children: [
-                const _GridHeader(),
-                Expanded(
-                  child: widget.lines.isEmpty
-                      ? const _EmptyGridState()
-                      : ListView.builder(
-                          itemCount: widget.lines.length,
-                          itemExtent: 54,
-                          itemBuilder: (context, index) {
-                            final line = widget.lines[index];
-                            return _GridRow(
-                              line: line,
-                              selectedYear: widget.selectedYear,
-                              hasDuplicateReference: widget.duplicateReferences
-                                  .contains(
-                                    line.reference.trim().toUpperCase(),
-                                  ),
-                              selected: line == widget.selectedLine,
-                              onSelect: () => widget.onSelectLine(line),
-                              onDelete: () => widget.onDeleteLine(line),
-                              onUpdate: (updated) =>
-                                  widget.onUpdateLine(line, updated),
-                            );
-                          },
-                        ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _RowNumberColumn(
+            width: 46,
+            controller: _rowNumberController,
+            itemCount: widget.lines.length,
+          ),
+          Expanded(
+            child: Scrollbar(
+              controller: _horizontalController,
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                controller: _horizontalController,
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: _BillingGrid.widths.fold<double>(
+                    0,
+                    (sum, width) => sum + width,
+                  ),
+                  child: Column(
+                    children: [
+                      const _GridHeader(),
+                      Expanded(
+                        child: widget.lines.isEmpty
+                            ? const _EmptyGridState()
+                            : Scrollbar(
+                                controller: _verticalController,
+                                thumbVisibility: true,
+                                child: ListView.builder(
+                                  controller: _verticalController,
+                                  primary: false,
+                                  itemCount: widget.lines.length,
+                                  itemExtent: 54,
+                                  cacheExtent: 108,
+                                  addAutomaticKeepAlives: false,
+                                  addRepaintBoundaries: false,
+                                  itemBuilder: (context, index) {
+                                    final line = widget.lines[index];
+                                    return RepaintBoundary(
+                                      child: _GridRow(
+                                        key: ValueKey(line.id),
+                                        line: line,
+                                        selectedYear: widget.selectedYear,
+                                        hasDuplicateReference: widget
+                                            .duplicateReferences
+                                            .contains(
+                                              line.reference
+                                                  .trim()
+                                                  .toUpperCase(),
+                                            ),
+                                        selected: line == widget.selectedLine,
+                                        onSelect: () =>
+                                            widget.onSelectLine(line),
+                                        onDelete: () =>
+                                            widget.onDeleteLine(line),
+                                        onUpdate: (updated) =>
+                                            widget.onUpdateLine(line, updated),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
+              ),
             ),
           ),
-        ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RowNumberColumn extends StatelessWidget {
+  const _RowNumberColumn({
+    required this.width,
+    required this.controller,
+    required this.itemCount,
+  });
+
+  final double width;
+  final ScrollController controller;
+  final int itemCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: Column(
+        children: [
+          Container(
+            height: 42,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              border: Border(
+                right: BorderSide(color: Color(0xFFE1E7EF)),
+                bottom: BorderSide(color: Color(0xFFE1E7EF)),
+              ),
+            ),
+            child: const Text(
+              '#',
+              style: TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          Expanded(
+            child: itemCount == 0
+                ? const SizedBox.shrink()
+                : ListView.builder(
+                    controller: controller,
+                    primary: false,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: itemCount,
+                    itemExtent: 54,
+                    cacheExtent: 108,
+                    itemBuilder: (context, index) => Container(
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFF8FAFC),
+                        border: Border(
+                          right: BorderSide(color: Color(0xFFE1E7EF)),
+                          bottom: BorderSide(color: Color(0xFFF1F5F9)),
+                        ),
+                      ),
+                      child: Text(
+                        '${index + 1}',
+                        style: const TextStyle(
+                          color: Color(0xFF64748B),
+                          fontSize: 12,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -1159,8 +1275,9 @@ class _HeaderCell extends StatelessWidget {
   }
 }
 
-class _GridRow extends StatefulWidget {
+class _GridRow extends StatelessWidget {
   const _GridRow({
+    super.key,
     required this.line,
     required this.selectedYear,
     required this.hasDuplicateReference,
@@ -1178,35 +1295,21 @@ class _GridRow extends StatefulWidget {
   final VoidCallback onDelete;
   final ValueChanged<BillingLine> onUpdate;
 
-  @override
-  State<_GridRow> createState() => _GridRowState();
-}
-
-class _GridRowState extends State<_GridRow> {
-  bool _hovered = false;
-
-  String _comment(String key) => widget.line.cellComments[key] ?? '';
+  String _comment(String key) => line.cellComments[key] ?? '';
 
   void _updateComment(String key, String value) {
-    final nextComments = Map<String, String>.of(widget.line.cellComments);
+    final nextComments = Map<String, String>.of(line.cellComments);
     final cleaned = value.trim();
     if (cleaned.isEmpty) {
       nextComments.remove(key);
     } else {
       nextComments[key] = cleaned;
     }
-    widget.onUpdate(widget.line.copyWith(cellComments: nextComments));
+    onUpdate(line.copyWith(cellComments: nextComments));
   }
 
   @override
   Widget build(BuildContext context) {
-    final line = widget.line;
-    final selected = widget.selected;
-    final selectedYear = widget.selectedYear;
-    final hasDuplicateReference = widget.hasDuplicateReference;
-    final onSelect = widget.onSelect;
-    final onDelete = widget.onDelete;
-    final onUpdate = widget.onUpdate;
     final annual = line.annualBilling(selectedYear);
     Widget commentable(String key, String label, double width, Widget child) {
       return _CommentableCell(
@@ -1220,60 +1323,49 @@ class _GridRowState extends State<_GridRow> {
 
     final background = selected
         ? const Color(0xFFEFF6FF)
-        : _hovered
-        ? const Color(0xFFF3F6FB)
         : line.isIncomplete
         ? const Color(0xFFFFFBEB)
         : Colors.white;
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        curve: Curves.easeOut,
-        color: background,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
+    return Container(
+      color: background,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
             SizedBox(
               width: _BillingGrid.widths[0],
               child: Center(
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Tooltip(
-                      message: 'Ouvrir le detail',
-                      child: IconButton(
-                        onPressed: onSelect,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 32,
-                          height: 32,
-                        ),
-                        icon: AppIcon(
-                          AppIcons.fileOpen,
-                          size: 18,
-                          color: selected
-                              ? Theme.of(context).colorScheme.primary
-                              : const Color(0xFF64748B),
-                        ),
+                    IconButton(
+                      tooltip: 'Ouvrir le detail',
+                      onPressed: onSelect,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      icon: AppIcon(
+                        AppIcons.fileOpen,
+                        size: 18,
+                        color: selected
+                            ? Theme.of(context).colorScheme.primary
+                            : const Color(0xFF64748B),
                       ),
                     ),
-                    Tooltip(
-                      message: 'Supprimer la ligne',
-                      child: IconButton(
-                        onPressed: onDelete,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 32,
-                          height: 32,
-                        ),
-                        icon: AppIcon(
-                          AppIcons.warning,
-                          size: 17,
-                          color: const Color(0xFFB91C1C),
-                        ),
+                    IconButton(
+                      tooltip: 'Supprimer la ligne',
+                      onPressed: onDelete,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                      icon: AppIcon(
+                        AppIcons.warning,
+                        size: 17,
+                        color: const Color(0xFFB91C1C),
                       ),
                     ),
                   ],
@@ -1457,8 +1549,7 @@ class _GridRowState extends State<_GridRow> {
               width: _BillingGrid.widths[25],
               child: Center(child: SyncBadge(state: line.syncState)),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -1522,6 +1613,17 @@ class _CommentableCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!_hasComment) {
+      return Listener(
+        onPointerDown: (event) {
+          if (event.buttons == 2) {
+            _openCommentDialog(context);
+          }
+        },
+        child: SizedBox(width: width, child: child),
+      );
+    }
+
     final content = Listener(
       onPointerDown: (event) {
         if (event.buttons == 2) {
@@ -1532,18 +1634,6 @@ class _CommentableCell extends StatelessWidget {
         width: width,
         child: Stack(
           children: [
-            if (_hasComment)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: const Color(0x33FACC15),
-                      border: Border.all(color: const Color(0xFFEAB308)),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                ),
-              ),
             child,
             if (_hasComment)
               Positioned.fill(
@@ -1577,12 +1667,9 @@ class _CommentableCell extends StatelessWidget {
       ),
     );
 
-    return Tooltip(
-      message: _hasComment
-          ? 'Commentaire : $comment'
-          : 'Clic droit pour ajouter un commentaire',
-      child: content,
-    );
+    return _hasComment
+        ? Tooltip(message: 'Commentaire : $comment', child: content)
+        : content;
   }
 }
 
@@ -1620,26 +1707,72 @@ class _DropdownCell extends StatelessWidget {
     final menuValues = values.contains(value) ? values : [value, ...values];
     final selectedValue = menuValues.contains(value) ? value : menuValues.first;
 
-    return SizedBox(
-      width: width,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: DropdownButtonFormField<String>(
-          initialValue: selectedValue,
-          isExpanded: true,
-          decoration: const InputDecoration(
-            contentPadding: EdgeInsets.symmetric(horizontal: 8),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openMenu(context, menuValues, selectedValue),
+      child: SizedBox(
+        width: width,
+        height: 38,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: const Color(0xFFE1E7EF)),
+            borderRadius: BorderRadius.circular(4),
           ),
-          items: menuValues.map((item) {
-            final label = item.isEmpty ? 'A renseigner' : item;
-            return DropdownMenuItem(value: item, child: Text(label));
-          }).toList(),
-          onChanged: (next) {
-            if (next != null) onChanged(next);
-          },
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  selectedValue.isEmpty ? 'A renseigner' : selectedValue,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+              ),
+              const Icon(Icons.expand_more, size: 17),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  Future<void> _openMenu(
+    BuildContext context,
+    List<String> menuValues,
+    String selectedValue,
+  ) async {
+    final box = context.findRenderObject() as RenderBox?;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (box == null || overlay == null) return;
+
+    final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final position = RelativeRect.fromRect(
+      Rect.fromLTWH(topLeft.dx, topLeft.dy, box.size.width, box.size.height),
+      Offset.zero & overlay.size,
+    );
+    final next = await showMenu<String>(
+      context: context,
+      position: position,
+      items: menuValues.map((item) {
+        final label = item.isEmpty ? 'A renseigner' : item;
+        return PopupMenuItem<String>(
+          value: item,
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13),
+          ),
+        );
+      }).toList(),
+    );
+    if (next != null && next != selectedValue) onChanged(next);
   }
 }
 
@@ -1659,49 +1792,76 @@ class _DateCell extends StatefulWidget {
 }
 
 class _DateCellState extends State<_DateCell> {
-  late final TextEditingController _controller;
-  late final FocusNode _focusNode;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.value);
-    _focusNode = FocusNode();
-    _focusNode.addListener(_handleFocusChanged);
-  }
+  TextEditingController? _controller;
+  FocusNode? _focusNode;
+  String _editStartValue = '';
+  bool _editing = false;
 
   @override
   void didUpdateWidget(covariant _DateCell oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_focusNode.hasFocus) return;
+    if (!_editing || _controller == null || _focusNode?.hasFocus == true) {
+      return;
+    }
     _syncControllerText();
   }
 
   @override
   void dispose() {
-    _focusNode.removeListener(_handleFocusChanged);
-    _focusNode.dispose();
-    _controller.dispose();
+    _disposeEditor();
     super.dispose();
   }
 
+  void _beginEditing() {
+    if (_editing) return;
+
+    _editStartValue = widget.value;
+    final controller = TextEditingController(text: widget.value);
+    final focusNode = FocusNode();
+    focusNode.addListener(_handleFocusChanged);
+    _controller = controller;
+    _focusNode = focusNode;
+    setState(() => _editing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _editing) _focusNode?.requestFocus();
+    });
+  }
+
   void _handleFocusChanged() {
-    if (!_focusNode.hasFocus) {
-      _syncControllerText();
+    if (_editing && _focusNode?.hasFocus == false) {
+      _commit();
     }
   }
 
   void _syncControllerText() {
-    if (widget.value == _controller.text) return;
-    _controller.value = TextEditingValue(
+    final controller = _controller;
+    if (controller == null || widget.value == controller.text) return;
+    controller.value = TextEditingValue(
       text: widget.value,
       selection: TextSelection.collapsed(offset: widget.value.length),
     );
   }
 
+  void _commit() {
+    if (!_editing) return;
+    final value = _controller?.text ?? _editStartValue;
+    final changed = value != _editStartValue;
+    _disposeEditor();
+    if (mounted) setState(() => _editing = false);
+    if (changed) widget.onChanged(value);
+  }
+
+  void _disposeEditor() {
+    _focusNode?.removeListener(_handleFocusChanged);
+    _focusNode?.dispose();
+    _controller?.dispose();
+    _focusNode = null;
+    _controller = null;
+  }
+
   Future<void> _pickDate() async {
     final now = DateTime.now();
-    final current = _parseDate(_controller.text);
+    final current = _parseDate(_controller?.text ?? widget.value);
     final initialDate = current ?? DateTime(now.year, now.month, now.day);
     final picked = await showDatePicker(
       context: context,
@@ -1712,11 +1872,15 @@ class _DateCellState extends State<_DateCell> {
     if (picked == null) return;
 
     final value = _formatDate(picked);
-    _controller.value = TextEditingValue(
-      text: value,
-      selection: TextSelection.collapsed(offset: value.length),
-    );
-    widget.onChanged(value);
+    if (_editing) {
+      _controller?.value = TextEditingValue(
+        text: value,
+        selection: TextSelection.collapsed(offset: value.length),
+      );
+      _commit();
+    } else {
+      widget.onChanged(value);
+    }
   }
 
   DateTime? _parseDate(String value) {
@@ -1764,6 +1928,50 @@ class _DateCellState extends State<_DateCell> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_editing) {
+      return SizedBox(
+        width: widget.width,
+        height: 38,
+        child: InkWell(
+          onTap: _beginEditing,
+          borderRadius: BorderRadius.circular(4),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: const Color(0xFFE1E7EF)),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _pickDate,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 30,
+                    height: 30,
+                  ),
+                  icon: const Icon(Icons.calendar_today_outlined, size: 16),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return SizedBox(
       width: widget.width,
       child: TextField(
@@ -1805,10 +2013,7 @@ class _DateCellState extends State<_DateCell> {
             borderSide: const BorderSide(color: Color(0xFFE1E7EF)),
           ),
         ),
-        onChanged: (value) {
-          setState(() {});
-          widget.onChanged(value);
-        },
+        onSubmitted: (_) => _commit(),
       ),
     );
   }

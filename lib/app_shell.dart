@@ -59,6 +59,7 @@ class _AppShellState extends State<AppShell> {
   Timer? _persistTimer;
   Timer? _syncTimer;
   Timer? _remotePullTimer;
+  Timer? _syncInfoTimer;
   PersistentSyncEngine? _syncEngine;
   Future<void> _localWriteChain = Future<void>.value();
   int _localDataEpoch = 0;
@@ -98,6 +99,7 @@ class _AppShellState extends State<AppShell> {
     _persistTimer?.cancel();
     _syncTimer?.cancel();
     _remotePullTimer?.cancel();
+    _syncInfoTimer?.cancel();
     if (_localStore != null && _lines.isNotEmpty) {
       unawaited(_persistLines(List<BillingLine>.of(_lines)));
     }
@@ -193,6 +195,7 @@ class _AppShellState extends State<AppShell> {
     _persistTimer?.cancel();
     _syncTimer?.cancel();
     _remotePullTimer?.cancel();
+    _syncInfoTimer?.cancel();
     _localDataEpoch++;
     await _localWriteChain.catchError((_) {});
     await _localStore?.clear();
@@ -204,6 +207,22 @@ class _AppShellState extends State<AppShell> {
       _syncInfo = null;
       _startupWarning = null;
     });
+  }
+
+  void _showSyncInfo(String message) {
+    if (!mounted) return;
+    _syncInfoTimer?.cancel();
+    setState(() => _syncInfo = message);
+    _syncInfoTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (!mounted) return;
+      setState(() => _syncInfo = null);
+    });
+  }
+
+  void _dismissSyncInfo() {
+    _syncInfoTimer?.cancel();
+    _syncInfoTimer = null;
+    if (mounted) setState(() => _syncInfo = null);
   }
 
   Future<void> _enqueueLocalWrite(
@@ -234,9 +253,7 @@ class _AppShellState extends State<AppShell> {
     try {
       await _remoteSyncClient.clearRemoteData();
       if (!mounted) return;
-      setState(() {
-        _syncInfo = 'Base distante reinitialisee.';
-      });
+      _showSyncInfo('Base distante reinitialisee.');
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
@@ -259,19 +276,17 @@ class _AppShellState extends State<AppShell> {
 
       if (_offline) {
         if (!mounted) return;
-        setState(() {
-          _syncInfo =
-              'Enregistre sur cet ordinateur. La synchronisation reprendra au retour en ligne.';
-        });
+        _showSyncInfo(
+          'Enregistre sur cet ordinateur. La synchronisation reprendra au retour en ligne.',
+        );
         return;
       }
 
       if (!_remoteSyncClient.isConfigured) {
         if (!mounted) return;
-        setState(() {
-          _syncInfo =
-              'Enregistre sur cet ordinateur. La base distante n est pas configuree.';
-        });
+        _showSyncInfo(
+          'Enregistre sur cet ordinateur. La base distante n est pas configuree.',
+        );
         return;
       }
 
@@ -279,11 +294,11 @@ class _AppShellState extends State<AppShell> {
       await _refreshPendingOutboxCount();
       if (!mounted) return;
 
-      setState(() {
-        _syncInfo = _pendingOutboxCount == 0
+      _showSyncInfo(
+        _pendingOutboxCount == 0
             ? 'Enregistrement confirme.'
-            : 'Enregistre localement. $_pendingOutboxCount modification(s) restent en attente.';
-      });
+            : 'Enregistre localement. $_pendingOutboxCount modification(s) restent en attente.',
+      );
     } finally {
       if (mounted) setState(() => _manualSaving = false);
     }
@@ -423,20 +438,24 @@ class _AppShellState extends State<AppShell> {
 
     try {
       final remoteLines = await _remoteSyncClient.fetchBillingLines();
-      if (!mounted || remoteLines.isEmpty) return;
+      if (!mounted) return;
+      if (remoteLines.isEmpty) {
+        _showSyncInfo('Chargement terminé.');
+        return;
+      }
       if (_pendingOutboxCount > 0 || _hasUnsyncedLines) return;
 
       final result = mergeCleanLocalLinesWithRemote(
         localLines: _lines,
         remoteLines: remoteLines,
       );
-      if (!result.changed) return;
+      if (!result.changed) {
+        _showSyncInfo('Chargement terminé.');
+        return;
+      }
 
-      setState(() {
-        _lines = result.lines;
-        _syncInfo =
-            'Base distante lue : ${result.added} ligne(s) ajoutee(s), ${result.updated} mise(s) a jour.';
-      });
+      setState(() => _lines = result.lines);
+      _showSyncInfo('Chargement terminé.');
       await _persistLines(result.lines);
     } on Object catch (error) {
       if (!mounted) return;
@@ -743,7 +762,7 @@ class _AppShellState extends State<AppShell> {
                 if (_syncInfo != null)
                   _SyncInfoBanner(
                     message: _syncInfo!,
-                    onDismiss: () => setState(() => _syncInfo = null),
+                    onDismiss: _dismissSyncInfo,
                   ),
                 if (_startupWarning != null)
                   _StartupWarningBanner(
