@@ -9,7 +9,9 @@ void main() {
     final result = importer.parseRows(
       [
         [
-          'Ref',
+          'Reference Odoo',
+          'Appellation comptable',
+          'Reference',
           'SITE',
           '',
           'CONTRAT',
@@ -21,7 +23,9 @@ void main() {
           'MONTANT/MOIS',
         ],
         [
-          'Reference, identique a celle de la comptabilite',
+          'Reference Odoo',
+          'Appellation comptable',
+          'Reference',
           'SITE',
           'ACTIVITE',
           'Debut',
@@ -45,7 +49,9 @@ void main() {
           'Total',
         ],
         [
-          'REF-001',
+          '1867',
+          'DOMICILE AMINATA',
+          '1867-1',
           'AK TRANSPORT',
           'NETTOYAGE',
           DateTime(2021),
@@ -57,7 +63,19 @@ void main() {
           10000,
           20000,
         ],
-        ['', 'AES', 'Gardiennage', 44197, 44561, '', '3', '2', 'desactive'],
+        [
+          '',
+          '',
+          '',
+          'AES',
+          'Gardiennage',
+          44197,
+          44561,
+          '',
+          '3',
+          '2',
+          'desactive',
+        ],
         ['TOTAUX', '', ''],
       ],
       year: 2026,
@@ -67,7 +85,9 @@ void main() {
     expect(result.importedCount, 2);
     expect(result.rowsRead, 2);
     expect(result.missingReferences, 1);
-    expect(result.lines.first.reference, 'REF-001');
+    expect(result.lines.first.reference, '1867-1');
+    expect(result.lines.first.odooId, '1867');
+    expect(result.lines.first.appellationComptable, 'DOMICILE AMINATA');
     expect(result.lines.first.name, 'AK TRANSPORT');
     expect(result.lines.first.activity, 'NETTOYAGE');
     expect(result.lines.first.startDate, '2021-01-01');

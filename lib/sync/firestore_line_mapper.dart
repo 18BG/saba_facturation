@@ -26,6 +26,10 @@ class FirestoreLineMapper {
 
     return BillingLine(
       id: lineId.isEmpty ? documentId : lineId,
+      odooId: _string(lineData['odooId'] ?? lineData['clientOdooId']),
+      appellationComptable: _string(
+        lineData['appellationComptable'] ?? lineData['clientOdooName'],
+      ),
       reference: _string(lineData['reference']),
       name: _string(lineData['name']),
       activity: _activity(lineData['activity']),

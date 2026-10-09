@@ -463,6 +463,7 @@ class _PreviewPanel extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           [
+                            if (line.odooId.isNotEmpty) line.odooId,
                             line.reference.isEmpty
                                 ? 'Ref manquante'
                                 : line.reference,

@@ -9,10 +9,12 @@ class FacturationSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Shimmer(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    return Stack(
+      children: [
+        Shimmer(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
           // Top bar.
           Container(
             height: 64,
@@ -89,6 +91,55 @@ class FacturationSkeleton extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+          ),
+            ],
+          ),
+        ),
+        const Positioned(
+          top: 18,
+          right: 18,
+          child: _LoadingPill(),
+        ),
+      ],
+    );
+  }
+}
+
+class _LoadingPill extends StatelessWidget {
+  const _LoadingPill();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFD7DEE8)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x140F172A),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 8),
+          Text(
+            'Chargement des données...',
+            style: TextStyle(
+              color: Color(0xFF475569),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],

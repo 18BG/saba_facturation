@@ -84,3 +84,13 @@ List<String> billingLineIssues(BillingLine line, {required int year}) {
     if (line.annualBilling(year).monthlyRate == 0) 'Tarif mensuel a 0.',
   ];
 }
+
+/// Returns whether a line needs immediate review before it can be considered
+/// complete. Zero staff or zero monthly rate are kept as warnings, but they
+/// are not used by the "A revoir" filter because imported workbooks may leave
+/// the monthly rate blank until it is completed by the team.
+bool billingLineNeedsReview(BillingLine line, {required bool duplicate}) {
+  return duplicate ||
+      line.isIncomplete ||
+      (line.status == 'Autre' && line.statusComment.trim().isEmpty);
+}

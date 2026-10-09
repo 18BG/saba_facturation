@@ -69,6 +69,8 @@ class BillingExcelExporter {
       ];
       for (final issue in issues) {
         alertRows.add([
+          TextCellValue(line.odooId),
+          TextCellValue(line.appellationComptable),
           TextCellValue(line.reference),
           TextCellValue(line.name),
           TextCellValue(line.activity),
@@ -81,6 +83,8 @@ class BillingExcelExporter {
 
     final sheet = workbook['Alertes'];
     sheet.appendRow([
+      TextCellValue('Reference Odoo'),
+      TextCellValue('Appellation comptable'),
       TextCellValue('Reference'),
       TextCellValue('SITE'),
       TextCellValue('ACTIVITE'),
@@ -90,13 +94,17 @@ class BillingExcelExporter {
       sheet.appendRow(row);
     }
     sheet.setColumnWidth(0, 18);
-    sheet.setColumnWidth(1, 30);
+    sheet.setColumnWidth(1, 28);
     sheet.setColumnWidth(2, 18);
-    sheet.setColumnWidth(3, 42);
+    sheet.setColumnWidth(3, 30);
+    sheet.setColumnWidth(4, 18);
+    sheet.setColumnWidth(5, 42);
   }
 
   void _writeHeader(Sheet sheet) {
     final headers = [
+      'Reference Odoo',
+      'Appellation comptable',
       'Reference',
       'SITE',
       'ACTIVITE',
@@ -120,6 +128,8 @@ class BillingExcelExporter {
   ) {
     final annual = line.annualBilling(options.year);
     final values = <CellValue?>[
+      TextCellValue(line.odooId),
+      TextCellValue(line.appellationComptable),
       TextCellValue(line.reference),
       TextCellValue(line.name),
       TextCellValue(line.activity),
@@ -138,6 +148,8 @@ class BillingExcelExporter {
 
   void _setColumnWidths(Sheet sheet) {
     const widths = <double>[
+      18,
+      28,
       18,
       30,
       18,
@@ -168,7 +180,7 @@ class BillingExcelExporter {
       16,
     ];
 
-    const columnCount = 22;
+    const columnCount = 24;
     for (var i = 0; i < columnCount; i++) {
       sheet.setColumnWidth(i, widths[i]);
     }

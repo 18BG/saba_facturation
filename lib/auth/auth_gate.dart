@@ -83,6 +83,15 @@ class _AuthSplash extends StatelessWidget {
               height: 22,
               child: CircularProgressIndicator(strokeWidth: 2.4),
             ),
+            SizedBox(height: 14),
+            Text(
+              'Ouverture de votre espace...',
+              style: TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),

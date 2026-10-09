@@ -20,6 +20,28 @@ class $BillingLineRecordsTable extends BillingLineRecords
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _odooIdMeta = const VerificationMeta('odooId');
+  @override
+  late final GeneratedColumn<String> odooId = GeneratedColumn<String>(
+    'odoo_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _appellationComptableMeta =
+      const VerificationMeta('appellationComptable');
+  @override
+  late final GeneratedColumn<String> appellationComptable =
+      GeneratedColumn<String>(
+        'appellation_comptable',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: const Constant(''),
+      );
   static const VerificationMeta _referenceMeta = const VerificationMeta(
     'reference',
   );
@@ -174,6 +196,8 @@ class $BillingLineRecordsTable extends BillingLineRecords
   @override
   List<GeneratedColumn> get $columns => [
     localId,
+    odooId,
+    appellationComptable,
     reference,
     name,
     activity,
@@ -207,6 +231,21 @@ class $BillingLineRecordsTable extends BillingLineRecords
       );
     } else if (isInserting) {
       context.missing(_localIdMeta);
+    }
+    if (data.containsKey('odoo_id')) {
+      context.handle(
+        _odooIdMeta,
+        odooId.isAcceptableOrUnknown(data['odoo_id']!, _odooIdMeta),
+      );
+    }
+    if (data.containsKey('appellation_comptable')) {
+      context.handle(
+        _appellationComptableMeta,
+        appellationComptable.isAcceptableOrUnknown(
+          data['appellation_comptable']!,
+          _appellationComptableMeta,
+        ),
+      );
     }
     if (data.containsKey('reference')) {
       context.handle(
@@ -313,6 +352,14 @@ class $BillingLineRecordsTable extends BillingLineRecords
         DriftSqlType.string,
         data['${effectivePrefix}local_id'],
       )!,
+      odooId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}odoo_id'],
+      )!,
+      appellationComptable: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}appellation_comptable'],
+      )!,
       reference: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}reference'],
@@ -377,6 +424,8 @@ class $BillingLineRecordsTable extends BillingLineRecords
 class BillingLineRecord extends DataClass
     implements Insertable<BillingLineRecord> {
   final String localId;
+  final String odooId;
+  final String appellationComptable;
   final String reference;
   final String name;
   final String activity;
@@ -392,6 +441,8 @@ class BillingLineRecord extends DataClass
   final DateTime updatedAt;
   const BillingLineRecord({
     required this.localId,
+    required this.odooId,
+    required this.appellationComptable,
     required this.reference,
     required this.name,
     required this.activity,
@@ -410,6 +461,8 @@ class BillingLineRecord extends DataClass
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['local_id'] = Variable<String>(localId);
+    map['odoo_id'] = Variable<String>(odooId);
+    map['appellation_comptable'] = Variable<String>(appellationComptable);
     map['reference'] = Variable<String>(reference);
     map['name'] = Variable<String>(name);
     map['activity'] = Variable<String>(activity);
@@ -429,6 +482,8 @@ class BillingLineRecord extends DataClass
   BillingLineRecordsCompanion toCompanion(bool nullToAbsent) {
     return BillingLineRecordsCompanion(
       localId: Value(localId),
+      odooId: Value(odooId),
+      appellationComptable: Value(appellationComptable),
       reference: Value(reference),
       name: Value(name),
       activity: Value(activity),
@@ -452,6 +507,10 @@ class BillingLineRecord extends DataClass
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return BillingLineRecord(
       localId: serializer.fromJson<String>(json['localId']),
+      odooId: serializer.fromJson<String>(json['odooId']),
+      appellationComptable: serializer.fromJson<String>(
+        json['appellationComptable'],
+      ),
       reference: serializer.fromJson<String>(json['reference']),
       name: serializer.fromJson<String>(json['name']),
       activity: serializer.fromJson<String>(json['activity']),
@@ -472,6 +531,8 @@ class BillingLineRecord extends DataClass
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'localId': serializer.toJson<String>(localId),
+      'odooId': serializer.toJson<String>(odooId),
+      'appellationComptable': serializer.toJson<String>(appellationComptable),
       'reference': serializer.toJson<String>(reference),
       'name': serializer.toJson<String>(name),
       'activity': serializer.toJson<String>(activity),
@@ -490,6 +551,8 @@ class BillingLineRecord extends DataClass
 
   BillingLineRecord copyWith({
     String? localId,
+    String? odooId,
+    String? appellationComptable,
     String? reference,
     String? name,
     String? activity,
@@ -505,6 +568,8 @@ class BillingLineRecord extends DataClass
     DateTime? updatedAt,
   }) => BillingLineRecord(
     localId: localId ?? this.localId,
+    odooId: odooId ?? this.odooId,
+    appellationComptable: appellationComptable ?? this.appellationComptable,
     reference: reference ?? this.reference,
     name: name ?? this.name,
     activity: activity ?? this.activity,
@@ -522,6 +587,10 @@ class BillingLineRecord extends DataClass
   BillingLineRecord copyWithCompanion(BillingLineRecordsCompanion data) {
     return BillingLineRecord(
       localId: data.localId.present ? data.localId.value : this.localId,
+      odooId: data.odooId.present ? data.odooId.value : this.odooId,
+      appellationComptable: data.appellationComptable.present
+          ? data.appellationComptable.value
+          : this.appellationComptable,
       reference: data.reference.present ? data.reference.value : this.reference,
       name: data.name.present ? data.name.value : this.name,
       activity: data.activity.present ? data.activity.value : this.activity,
@@ -550,6 +619,8 @@ class BillingLineRecord extends DataClass
   String toString() {
     return (StringBuffer('BillingLineRecord(')
           ..write('localId: $localId, ')
+          ..write('odooId: $odooId, ')
+          ..write('appellationComptable: $appellationComptable, ')
           ..write('reference: $reference, ')
           ..write('name: $name, ')
           ..write('activity: $activity, ')
@@ -570,6 +641,8 @@ class BillingLineRecord extends DataClass
   @override
   int get hashCode => Object.hash(
     localId,
+    odooId,
+    appellationComptable,
     reference,
     name,
     activity,
@@ -589,6 +662,8 @@ class BillingLineRecord extends DataClass
       identical(this, other) ||
       (other is BillingLineRecord &&
           other.localId == this.localId &&
+          other.odooId == this.odooId &&
+          other.appellationComptable == this.appellationComptable &&
           other.reference == this.reference &&
           other.name == this.name &&
           other.activity == this.activity &&
@@ -606,6 +681,8 @@ class BillingLineRecord extends DataClass
 
 class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
   final Value<String> localId;
+  final Value<String> odooId;
+  final Value<String> appellationComptable;
   final Value<String> reference;
   final Value<String> name;
   final Value<String> activity;
@@ -622,6 +699,8 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
   final Value<int> rowid;
   const BillingLineRecordsCompanion({
     this.localId = const Value.absent(),
+    this.odooId = const Value.absent(),
+    this.appellationComptable = const Value.absent(),
     this.reference = const Value.absent(),
     this.name = const Value.absent(),
     this.activity = const Value.absent(),
@@ -639,6 +718,8 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
   });
   BillingLineRecordsCompanion.insert({
     required String localId,
+    this.odooId = const Value.absent(),
+    this.appellationComptable = const Value.absent(),
     this.reference = const Value.absent(),
     this.name = const Value.absent(),
     this.activity = const Value.absent(),
@@ -657,6 +738,8 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
        updatedAt = Value(updatedAt);
   static Insertable<BillingLineRecord> custom({
     Expression<String>? localId,
+    Expression<String>? odooId,
+    Expression<String>? appellationComptable,
     Expression<String>? reference,
     Expression<String>? name,
     Expression<String>? activity,
@@ -674,6 +757,9 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
   }) {
     return RawValuesInsertable({
       if (localId != null) 'local_id': localId,
+      if (odooId != null) 'odoo_id': odooId,
+      if (appellationComptable != null)
+        'appellation_comptable': appellationComptable,
       if (reference != null) 'reference': reference,
       if (name != null) 'name': name,
       if (activity != null) 'activity': activity,
@@ -693,6 +779,8 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
 
   BillingLineRecordsCompanion copyWith({
     Value<String>? localId,
+    Value<String>? odooId,
+    Value<String>? appellationComptable,
     Value<String>? reference,
     Value<String>? name,
     Value<String>? activity,
@@ -710,6 +798,8 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
   }) {
     return BillingLineRecordsCompanion(
       localId: localId ?? this.localId,
+      odooId: odooId ?? this.odooId,
+      appellationComptable: appellationComptable ?? this.appellationComptable,
       reference: reference ?? this.reference,
       name: name ?? this.name,
       activity: activity ?? this.activity,
@@ -732,6 +822,14 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
     final map = <String, Expression>{};
     if (localId.present) {
       map['local_id'] = Variable<String>(localId.value);
+    }
+    if (odooId.present) {
+      map['odoo_id'] = Variable<String>(odooId.value);
+    }
+    if (appellationComptable.present) {
+      map['appellation_comptable'] = Variable<String>(
+        appellationComptable.value,
+      );
     }
     if (reference.present) {
       map['reference'] = Variable<String>(reference.value);
@@ -782,6 +880,8 @@ class BillingLineRecordsCompanion extends UpdateCompanion<BillingLineRecord> {
   String toString() {
     return (StringBuffer('BillingLineRecordsCompanion(')
           ..write('localId: $localId, ')
+          ..write('odooId: $odooId, ')
+          ..write('appellationComptable: $appellationComptable, ')
           ..write('reference: $reference, ')
           ..write('name: $name, ')
           ..write('activity: $activity, ')
@@ -2368,6 +2468,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
 typedef $$BillingLineRecordsTableCreateCompanionBuilder =
     BillingLineRecordsCompanion Function({
       required String localId,
+      Value<String> odooId,
+      Value<String> appellationComptable,
       Value<String> reference,
       Value<String> name,
       Value<String> activity,
@@ -2386,6 +2488,8 @@ typedef $$BillingLineRecordsTableCreateCompanionBuilder =
 typedef $$BillingLineRecordsTableUpdateCompanionBuilder =
     BillingLineRecordsCompanion Function({
       Value<String> localId,
+      Value<String> odooId,
+      Value<String> appellationComptable,
       Value<String> reference,
       Value<String> name,
       Value<String> activity,
@@ -2413,6 +2517,16 @@ class $$BillingLineRecordsTableFilterComposer
   });
   ColumnFilters<String> get localId => $composableBuilder(
     column: $table.localId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get odooId => $composableBuilder(
+    column: $table.odooId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get appellationComptable => $composableBuilder(
+    column: $table.appellationComptable,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -2496,6 +2610,16 @@ class $$BillingLineRecordsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get odooId => $composableBuilder(
+    column: $table.odooId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get appellationComptable => $composableBuilder(
+    column: $table.appellationComptable,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get reference => $composableBuilder(
     column: $table.reference,
     builder: (column) => ColumnOrderings(column),
@@ -2573,6 +2697,14 @@ class $$BillingLineRecordsTableAnnotationComposer
   });
   GeneratedColumn<String> get localId =>
       $composableBuilder(column: $table.localId, builder: (column) => column);
+
+  GeneratedColumn<String> get odooId =>
+      $composableBuilder(column: $table.odooId, builder: (column) => column);
+
+  GeneratedColumn<String> get appellationComptable => $composableBuilder(
+    column: $table.appellationComptable,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get reference =>
       $composableBuilder(column: $table.reference, builder: (column) => column);
@@ -2663,6 +2795,8 @@ class $$BillingLineRecordsTableTableManager
           updateCompanionCallback:
               ({
                 Value<String> localId = const Value.absent(),
+                Value<String> odooId = const Value.absent(),
+                Value<String> appellationComptable = const Value.absent(),
                 Value<String> reference = const Value.absent(),
                 Value<String> name = const Value.absent(),
                 Value<String> activity = const Value.absent(),
@@ -2679,6 +2813,8 @@ class $$BillingLineRecordsTableTableManager
                 Value<int> rowid = const Value.absent(),
               }) => BillingLineRecordsCompanion(
                 localId: localId,
+                odooId: odooId,
+                appellationComptable: appellationComptable,
                 reference: reference,
                 name: name,
                 activity: activity,
@@ -2697,6 +2833,8 @@ class $$BillingLineRecordsTableTableManager
           createCompanionCallback:
               ({
                 required String localId,
+                Value<String> odooId = const Value.absent(),
+                Value<String> appellationComptable = const Value.absent(),
                 Value<String> reference = const Value.absent(),
                 Value<String> name = const Value.absent(),
                 Value<String> activity = const Value.absent(),
@@ -2713,6 +2851,8 @@ class $$BillingLineRecordsTableTableManager
                 Value<int> rowid = const Value.absent(),
               }) => BillingLineRecordsCompanion.insert(
                 localId: localId,
+                odooId: odooId,
+                appellationComptable: appellationComptable,
                 reference: reference,
                 name: name,
                 activity: activity,
