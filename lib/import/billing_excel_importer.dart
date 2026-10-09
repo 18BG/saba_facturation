@@ -202,6 +202,15 @@ class BillingExcelImporter {
     final contractNatureIndex = _findHeaderContaining(headers, 'NATURE', 5);
     final billedStaffIndex = _findHeaderContaining(headers, 'EFF FACTURE', 6);
     final paidStaffIndex = _findHeaderContaining(headers, 'EFF PAYE', 7);
+    final contractAmountIndex = _findHeaderContaining(
+      headers,
+      'MONTANT DU CONTRAT',
+      0,
+    );
+    final agentCountIndex = _findHeaderContaining(headers, 'NBRE AGENT', 0);
+    final dayStaffIndex = _findHeaderContaining(headers, 'AGENTS JOUR', 0);
+    final nightStaffIndex = _findHeaderContaining(headers, 'AGENTS NUIT', 0);
+    final weaponCountIndex = _findHeaderContaining(headers, 'ARME', 0);
     final statusIndex = _findHeaderContaining(headers, 'POSITION', 8);
     final monthIndexes = _detectMonthIndexes(
       headerIndex >= 0 && headerIndex < rows.length
@@ -275,8 +284,22 @@ class BillingExcelImporter {
           startDate: _cellDateText(_cellAt(row, startDateIndex)),
           endDate: _cellDateText(_cellAt(row, endDateIndex)),
           contractNature: _cellText(_cellAt(row, contractNatureIndex)),
-          billedStaff: _cellInt(_cellAt(row, billedStaffIndex)),
-          paidStaff: _cellInt(_cellAt(row, paidStaffIndex)),
+          billedStaff: billedStaffIndex >= 0
+              ? _cellInt(_cellAt(row, billedStaffIndex))
+              : _cellInt(_cellAt(row, agentCountIndex)),
+          paidStaff: paidStaffIndex >= 0
+              ? _cellInt(_cellAt(row, paidStaffIndex))
+              : 0,
+          contractAmount: _cellNumber(_cellAt(row, contractAmountIndex)),
+          weaponCount: _cellInt(_cellAt(row, weaponCountIndex)),
+          dayStaff: dayStaffIndex >= 0
+              ? _cellInt(_cellAt(row, dayStaffIndex))
+              : (agentCountIndex >= 0
+                    ? _cellInt(_cellAt(row, agentCountIndex))
+                    : 0),
+          nightStaff: nightStaffIndex >= 0
+              ? _cellInt(_cellAt(row, nightStaffIndex))
+              : 0,
           annualBillings: {
             year: AnnualBillingData(monthlyRate: 0, payments: payments),
           },

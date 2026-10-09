@@ -8,6 +8,7 @@ import 'pages/dashboard_page.dart';
 import 'pages/export_page.dart';
 import 'pages/facturation_page.dart';
 import 'pages/import_page.dart';
+import 'pages/quick_payments_page.dart';
 import 'pages/settings_page.dart';
 import 'storage/billing_local_store.dart';
 import 'sync/billing_snapshot_changes.dart';
@@ -599,7 +600,7 @@ class _AppShellState extends State<AppShell> {
 
   int get _safeSelectedIndex {
     if (_settingsAvailable) return _selectedIndex;
-    return _selectedIndex > 3 ? 0 : _selectedIndex;
+    return _selectedIndex > 4 ? 0 : _selectedIndex;
   }
 
   FacturationPage _buildFacturationPage() {
@@ -639,7 +640,15 @@ class _AppShellState extends State<AppShell> {
         onApplyImport: _applyImportedLines,
       ),
       3 => ExportPage(lines: _lines, selectedYear: _selectedYear),
-      4 when _settingsAvailable => SettingsPage(
+      4 => QuickPaymentsPage(
+        lines: _lines,
+        selectedYear: _selectedYear,
+        onYearChanged: (year) => setState(() => _selectedYear = year),
+        onLinesChanged: _saveLines,
+        onPendingChanges: _savePendingChanges,
+        onOpenExport: () => setState(() => _selectedIndex = 3),
+      ),
+      5 when _settingsAvailable => SettingsPage(
         selectedYear: _selectedYear,
         pendingOutboxCount: _pendingOutboxCount,
         offline: _offline,
@@ -732,6 +741,11 @@ class _AppShellState extends State<AppShell> {
                   strokeWidth: 2.2,
                 ),
                 label: const Text('Export'),
+              ),
+              const NavigationRailDestination(
+                icon: Icon(Icons.payments_outlined),
+                selectedIcon: Icon(Icons.payments),
+                label: Text('Paiements'),
               ),
               if (_settingsAvailable)
                 NavigationRailDestination(

@@ -116,6 +116,10 @@ class BillingExcelExporter {
       'Position client',
       'Tarif mensuel',
       ...months,
+      'Montant du contrat',
+      'Nombre d\'arme',
+      'Agents jour',
+      'Agents nuit',
     ];
 
     sheet.appendRow([for (final header in headers) TextCellValue(header)]);
@@ -141,6 +145,10 @@ class BillingExcelExporter {
       TextCellValue(line.status),
       DoubleCellValue(annual.monthlyRate),
       for (final month in months) DoubleCellValue(annual.payments[month] ?? 0),
+      DoubleCellValue(line.contractAmount),
+      IntCellValue(line.weaponCount),
+      IntCellValue(line.dayStaff),
+      IntCellValue(line.nightStaff),
     ];
 
     sheet.appendRow(values);
@@ -180,7 +188,7 @@ class BillingExcelExporter {
       16,
     ];
 
-    const columnCount = 24;
+    const columnCount = 28;
     for (var i = 0; i < columnCount; i++) {
       sheet.setColumnWidth(i, widths[i]);
     }

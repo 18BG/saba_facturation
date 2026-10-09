@@ -118,6 +118,10 @@ class BillingLine {
     required this.status,
     required this.statusComment,
     required this.syncState,
+    this.contractAmount = 0,
+    this.weaponCount = 0,
+    this.dayStaff = 0,
+    this.nightStaff = 0,
     Map<String, String>? cellComments,
   }) : id = id == null || id.trim().isEmpty ? newBillingLineId() : id,
        odooId = (odooId ?? '').trim(),
@@ -146,6 +150,12 @@ class BillingLine {
       contractNature: json['contractNature'] as String? ?? '',
       billedStaff: _toInt(json['billedStaff']),
       paidStaff: _toInt(json['paidStaff']),
+      contractAmount: _toDouble(
+        json['contractAmount'] ?? json['Montant du contrat'],
+      ),
+      weaponCount: _toInt(json['weaponCount'] ?? json["Nombre d'arme"]),
+      dayStaff: _toInt(json['dayStaff'] ?? json['Nombre d\'agent jour']),
+      nightStaff: _toInt(json['nightStaff'] ?? json['Nombre d\'agent nuit']),
       annualBillings: {
         for (final entry in rawAnnualBillings.entries)
           int.tryParse(entry.key) ?? 0: AnnualBillingData.fromJson(
@@ -170,6 +180,10 @@ class BillingLine {
   final String contractNature;
   final int billedStaff;
   final int paidStaff;
+  final double contractAmount;
+  final int weaponCount;
+  final int dayStaff;
+  final int nightStaff;
   final Map<int, AnnualBillingData> annualBillings;
   final String status;
   final String statusComment;
@@ -239,6 +253,10 @@ class BillingLine {
     String? contractNature,
     int? billedStaff,
     int? paidStaff,
+    double? contractAmount,
+    int? weaponCount,
+    int? dayStaff,
+    int? nightStaff,
     Map<int, AnnualBillingData>? annualBillings,
     String? status,
     String? statusComment,
@@ -257,6 +275,10 @@ class BillingLine {
       contractNature: contractNature ?? this.contractNature,
       billedStaff: billedStaff ?? this.billedStaff,
       paidStaff: paidStaff ?? this.paidStaff,
+      contractAmount: contractAmount ?? this.contractAmount,
+      weaponCount: weaponCount ?? this.weaponCount,
+      dayStaff: dayStaff ?? this.dayStaff,
+      nightStaff: nightStaff ?? this.nightStaff,
       annualBillings: annualBillings ?? this.annualBillings,
       status: status ?? this.status,
       statusComment: statusComment ?? this.statusComment,
@@ -278,6 +300,10 @@ class BillingLine {
       'contractNature': contractNature,
       'billedStaff': billedStaff,
       'paidStaff': paidStaff,
+      'contractAmount': contractAmount,
+      'weaponCount': weaponCount,
+      'dayStaff': dayStaff,
+      'nightStaff': nightStaff,
       'annualBillings': {
         for (final entry in annualBillings.entries)
           '${entry.key}': entry.value.toJson(),
